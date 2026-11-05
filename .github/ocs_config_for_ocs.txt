@@ -1,0 +1,20 @@
+[
+  {
+    "name": "本地AI中转",
+    "homepage": "http://127.0.0.1:5000/",
+    "url": "http://127.0.0.1:5000/api/qa",
+    "method": "post",
+    "type": "GM_xmlhttpRequest",
+    "contentType": "json",
+    "responseType": "json",
+    "data": {
+      "title": "${title}",
+      "options": "${options}",
+      "type": "${type}",
+      "images": { "handler": "return (env) => env.images || []" },
+      "suggestion_title": "${suggestion_title}",
+      "suggestion_options": "${suggestion_options}"
+    },
+    "handler": "return (res) => [res.question, res.answer]"
+  }
+]

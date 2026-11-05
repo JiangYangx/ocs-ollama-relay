@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234c8dff'/%3E%3Cstop offset='1' stop-color='%237c5cff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Ctext x='32' y='43' font-family='Arial,Helvetica,sans-serif' font-size='30' font-weight='bold' fill='white' text-anchor='middle'%3EJY%3C/text%3E%3C/svg%3E">
-<title>OCS 中转控制台</title>
+<title>JY Relay · 中转控制台</title>
 <style>
 :root{
   --bg:#0d1017; --panel:#151922; --panel2:#1b2130; --line:#252c3a;
@@ -215,8 +215,8 @@ a{color:var(--acc);text-decoration:none}
       </svg>
     </div>
     <div>
-      <h1>OCS 中转控制台</h1>
-      <div class="sub">AI 答题通道 · <span id="ver">v-</span></div>
+      <h1>JY Relay 中转控制台</h1>
+      <div class="sub">大模型中转 · <span id="ver">v-</span></div>
     </div>
     <div class="spacer"></div>
     <div class="pill"><span class="dot" id="d-srv"></span>服务 <b id="srv">检测中</b></div>
@@ -245,14 +245,14 @@ a{color:var(--acc);text-decoration:none}
       </div>
 
       <div class="card">
-        <h2>最近答题 <span class="n">最近 120 条</span>
+        <h2>最近请求 <span class="n">最近 120 条</span>
           <span class="right"><button class="btn ghost" id="btn-clear-ans">清空显示</button></span>
         </h2>
         <div class="ans-wrap">
           <table>
             <thead><tr><th style="width:64px">时间</th><th>题目</th><th style="width:110px">答案</th>
             <th style="width:82px">方式</th><th style="width:60px">耗时</th></tr></thead>
-            <tbody id="ans-body"><tr><td colspan="5" class="hint" style="padding:16px 8px">暂无记录，去 OCS 里答一题试试</td></tr></tbody>
+            <tbody id="ans-body"><tr><td colspan="5" class="hint" style="padding:16px 8px">暂无记录，发一条请求试试</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -261,11 +261,11 @@ a{color:var(--acc);text-decoration:none}
     <!-- 右栏 -->
     <div>
       <div class="card">
-        <h2>接入 OCS <span class="n">一键复制</span></h2>
+        <h2>接入客户端 <span class="n">一键复制</span></h2>
         <div class="code" id="ocs-cfg">加载中…</div>
         <div class="copy">
           <button class="btn primary" id="btn-copy">复制配置</button>
-          <span class="hint">OCS → 题库配置 → 自定义 → 粘贴</span>
+          <span class="hint">粘贴到客户端的接口配置中</span>
         </div>
       </div>
 
@@ -389,7 +389,7 @@ a{color:var(--acc);text-decoration:none}
         <div class="field">
           <label>访问令牌（可选，安全）</label>
           <input type="text" id="f-token" placeholder="留空=不鉴权；建议设一个">
-          <div class="tip">设置后所有接口（含 OCS 请求）都需携带；开启局域网访问时强烈建议。改后需重新复制 OCS 配置</div>
+          <div class="tip">设置后所有接口（含客户端请求）都需携带；开启局域网访问时强烈建议。改后需重新复制接入配置</div>
         </div>
         <div class="row2">
           <div class="field">

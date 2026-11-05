@@ -75,7 +75,7 @@ def main() -> None:
     if os.path.exists(cfg):
         shutil.copy2(cfg, os.path.join(ROOT, "dist", "config.json"))
 
-    exe_name = "OCS.exe" if os.name == "nt" else "OCS"
+    exe_name = "JY-Relay.exe" if os.name == "nt" else "JY-Relay"
     out = os.path.join(ROOT, "dist", exe_name)
     if os.path.exists(out):
         size = os.path.getsize(out) / 1024 / 1024

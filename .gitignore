@@ -43,6 +43,15 @@ logs/
 config.json.tmp
 config.json.bak
 
+# ---- 个人数据（题库 / 人工订正，不要提交）----
+bank.json
+corrections.json
+*.bank.json
+
+# ---- 构建产物 ----
+*.exe
+_ocr_*.png
+
 # ---- 编辑器 / IDE ----
 .vscode/
 .idea/

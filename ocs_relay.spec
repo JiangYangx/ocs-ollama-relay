@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller 打包配置：OCS 中转服务（绿色单文件 exe）
+# PyInstaller 打包配置：JY Relay 中转服务（绿色单文件 exe）
 #
 # 不要直接用 pyinstaller 跑这个文件，请执行：
 #     python tools/build_exe.py
@@ -50,7 +50,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='OCS',
+    name='JY-Relay',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
