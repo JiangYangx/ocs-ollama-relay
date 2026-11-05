@@ -10,9 +10,9 @@
 **双后端可切换**：
 
 - **本地 Ollama**（默认）：离线、不外传数据、无费用，需要自己跑模型
-- **云端 OpenAI 兼容接口**：无需显卡，支持智谱 GLM-4.5-Flash（全免费）、硅基流动 Qwen3-8B 等免费模型；⚠️ 题目会发往云端服务器
+- **云端 OpenAI 兼容接口**：无需显卡，支持智谱 GLM-5.3-Flash（免费档）、硅基流动 Qwen3-8B 等免费模型；⚠️ 题目会发往云端服务器
 
-**题型自动路由**：图片题自动走视觉模型（如 GLM-4V-Flash / 本地 qwen2.5vl），代码题走代码模型（如 Qwen3-8B），普通文本题走主模型。OCS 端 5.x 的图片题优化（`images` 字段）已内置支持。
+**题型自动路由**：图片题自动走视觉模型（如智谱 glm-4v-flash / 本地 qwen2.5vl），代码题走代码模型（如 Qwen3-8B），普通文本题走主模型。OCS 端 5.x 的图片题优化（`images` 字段）已内置支持。
 
 **单文件设计**：全部后端逻辑集中在 `ocs_relay.py` 一个文件里，控制台页面在打包时内嵌，产出的 exe 无需任何附属文件。源码会先找同目录的 `console.html`，找不到才用内嵌版本 —— 改界面时不必重新打包就能看效果。
 
@@ -48,14 +48,14 @@ ocs-ollama-relay/
 
 不想装 Ollama / 没有显卡？两分钟切到云端（**注意：题目会发往云端**）：
 
-1. [智谱开放平台](https://open.bigmodel.cn/) 注册 → 实名 → 创建 API Key（GLM-4.5-Flash、GLM-4V-Flash 等全免费，无 token 上限）
+1. [智谱开放平台](https://open.bigmodel.cn/) 注册 → 实名 → 创建 API Key免费档为 glm-5.3-flash 系列（控制台模型下拉里选带 flash 字样的型号）
 2. 控制台 →「配置」→ 模型后端选「云端」→ 填入：
 
 | 字段 | 值 |
 |---|---|
 | api_base | `https://open.bigmodel.cn/api/paas/v4` |
-| 主模型 | `glm-4.5-flash` |
-| 视觉模型 | `glm-4v-flash`（图片题） |
+| 主模型 | `glm-5.3-flash`（以下拉列表里实际存在的免费型号为准） |
+| 视觉模型 | `glm-4v-flash`（若下拉列表无此型号则留空） |
 
 或用硅基流动（新用户送 2000 万 Token，Qwen3-8B 永久免费）：`api_base = https://api.siliconflow.cn/v1`，主模型 `Qwen/Qwen3-8B`。两家都需实名认证。
 
@@ -173,6 +173,8 @@ dist/
 | `/api/diagnose` | GET | 自检 8 项 |
 | `/api/fix` | POST | 一键修复（`start_ollama` / `pull_model` / `pull_fallback` / `change_port` / `reset_config`） |
 | `/api/health` | GET | 简版健康检查 |
+| `/api/bank` | GET / POST / DELETE | 题库：查状态 / 导入（`{"text": "..."}`）/ 清空 |
+| `/api/corrections` | GET / POST / DELETE | 人工订正：列表+最近答题 / 新增 / 删除（`?key=`） |
 | `/` | GET | 控制台页面 |
 
 ```bash
@@ -204,11 +206,11 @@ curl -X POST http://127.0.0.1:5000/api/qa \
 |---|---|---|
 | `backend` | `ollama` | `ollama` 本地 / `openai` 云端 OpenAI 兼容 |
 | `api_base` / `api_key` | 空 | 云端必填；本地留空。key 只存本机 config.json |
-| `cloud_max_tokens` | `256` | 云端单次生成上限 |
+| `cloud_max_tokens` | `1024` | 云端单次生成上限；思考型模型建议 1024+，被截断会自动扩容重试 |
 | `model` | `qwen2.5:7b-instruct` | 主模型（普通文本题） |
 | `fallback_model` | `deepseek-r1:7b` | 备用模型，主模型失败时自动切换 |
 | `auto_route` | `true` | 按题型自动路由 |
-| `vision_model` | 空 | 图片题模型，如 `glm-4v-flash` / 本地 `qwen2.5vl:7b` |
+| `vision_model` | 空 | 图片题模型，如 `glm-4v-flash` / 本地 `qwen2.5vl:7b`（须为当前后端存在的模型，否则自动回落主模型） |
 | `code_model` | 空 | 代码题模型，如 `Qwen/Qwen3-8B`；空=走主模型 |
 | `bank_enabled` | `true` | 题库优先：先查 bank.json（控制台导入），命中不走模型 |
 | `verify_mode` | `off` | 交叉验证：`off` / `fast`（复核标注）/ `full`（复核+仲裁） |
@@ -219,7 +221,7 @@ curl -X POST http://127.0.0.1:5000/api/qa \
 | `ollama_url` | `http://127.0.0.1:11434/api/generate` | Ollama 地址（仅本地后端） |
 | `keep_alive` | `30m` | 模型驻留内存时长，避免每题重新加载（仅本地） |
 | `num_ctx` | `4096` | 上下文窗口（仅本地） |
-| `num_predict` | `256` | 最多生成 token（仅本地） |
+| `num_predict` | `1024` | 最多生成 token（仅本地） |
 | `temperature` / `seed` | `0.0` / `42` | 确定性输出，同题同答案 |
 | `port` | `5000` | 服务端口（改后需重启） |
 | `max_concurrency` | `1` | 并发推理数（1–8）。本地模型保持 1；云端可设 2–4（改后需重启） |
