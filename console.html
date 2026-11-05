@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234c8dff'/%3E%3Cstop offset='1' stop-color='%237c5cff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Ctext x='32' y='43' font-family='Arial,Helvetica,sans-serif' font-size='30' font-weight='bold' fill='white' text-anchor='middle'%3EJY%3C/text%3E%3C/svg%3E">
+<title>OCS 中转控制台</title>
+<style>
+:root{
+  --bg:#0d1017; --panel:#151922; --panel2:#1b2130; --line:#252c3a;
+  --txt:#e7ecf3; --dim:#8b96a8; --dim2:#5f6b7f;
+  --ok:#37d67a; --warn:#ffb224; --bad:#f04438; --acc:#4c8dff; --acc2:#7c5cff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  background:var(--bg); color:var(--txt); min-height:100vh;
+  font-size:14px; line-height:1.55;
+  background-image:radial-gradient(900px 500px at 15% -10%,#1b2340 0%,transparent 60%),
+                   radial-gradient(700px 400px at 100% 0%,#241a3a 0%,transparent 55%);
+  background-attachment:fixed;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 22px 60px}
+
+/* ---------- 顶栏 ---------- */
+header{display:flex;align-items:center;gap:14px;margin-bottom:22px;flex-wrap:wrap}
+.logo{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--acc),var(--acc2));font-size:19px;
+  box-shadow:0 6px 20px #4c8dff40}
+h1{font-size:18px;font-weight:650;letter-spacing:.2px}
+.sub{color:var(--dim);font-size:12.5px;margin-top:1px}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+  font-size:12px;background:var(--panel2);border:1px solid var(--line);color:var(--dim)}
+.pill b{color:var(--txt);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--dim2);display:inline-block}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px #37d67a90}
+.dot.bad{background:var(--bad);box-shadow:0 0 8px #f0443890}
+.dot.warn{background:var(--warn);box-shadow:0 0 8px #ffb22490}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.dot.busy{background:var(--acc);animation:pulse 1s infinite}
+
+/* ---------- 布局 ---------- */
+.grid{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;align-items:start}
+.grid > *{min-width:0}   /* 防止表格/pre 等宽内容撑破移动端布局 */
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:13.5px;font-weight:600;color:var(--txt);margin-bottom:14px;
+  display:flex;align-items:center;gap:8px}
+.card h2 .n{color:var(--dim2);font-weight:500;font-size:11.5px}
+.card h2 .right{margin-left:auto;display:flex;gap:8px}
+
+/* ---------- 自检 ---------- */
+.diag-item{display:flex;gap:11px;padding:10px 0;border-bottom:1px solid #1e2432;
+  align-items:flex-start;font-size:13px}
+.diag-item:last-child{border-bottom:none}
+.diag-ico{width:18px;flex:0 0 18px;text-align:center;font-size:13px;line-height:1.5}
+.diag-body{flex:1;min-width:0}
+.diag-label{font-weight:560}
+.diag-detail{color:var(--dim);font-size:12.5px;margin-top:1px;word-break:break-all}
+.diag-hint{color:var(--dim2);font-size:11.5px;margin-top:2px}
+.btn-fix{border:1px solid #3a4560;background:#202a3f;color:#a8c2ff;
+  font-size:11.5px;padding:3px 10px;border-radius:7px;cursor:pointer;white-space:nowrap;
+  transition:.15s;flex:0 0 auto;align-self:center}
+.btn-fix:hover{background:#28354f;border-color:#4d5c7d}
+.btn-fix:disabled{opacity:.5;cursor:default}
+
+/* ---------- 表单 ---------- */
+.field{margin-bottom:13px}
+.field label{display:block;font-size:12px;color:var(--dim);margin-bottom:5px}
+.field .tip{font-size:11px;color:var(--dim2);margin-top:4px}
+input[type=text],input[type=number],select{
+  width:100%;background:#0f1420;border:1px solid var(--line);color:var(--txt);
+  padding:8px 11px;border-radius:9px;font-size:13px;font-family:inherit;outline:none;transition:.15s}
+input:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 3px #4c8dff22}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.switch{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;
+  padding:7px 0;font-size:13px}
+.switch input{display:none}
+.track{width:36px;height:20px;border-radius:99px;background:#2b3245;position:relative;
+  transition:.2s;flex:0 0 36px}
+.track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;
+  border-radius:50%;background:#8994a8;transition:.2s}
+.switch input:checked + .track{background:#2f5ea8}
+.switch input:checked + .track::after{left:18px;background:#cfe0ff}
+
+/* ---------- 按钮 ---------- */
+.btn{border:1px solid var(--line);background:var(--panel2);color:var(--txt);
+  padding:7px 14px;border-radius:9px;font-size:12.5px;cursor:pointer;transition:.15s;
+  font-family:inherit;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:#232b3d;border-color:#33405a}
+.btn.primary{background:linear-gradient(135deg,var(--acc),#3a6fd8);border-color:transparent;
+  color:#fff;font-weight:560;box-shadow:0 4px 14px #4c8dff33}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent}
+.btn:disabled{opacity:.55;cursor:default}
+
+/* ---------- 统计 ---------- */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:4px}
+.stat{background:#111722;border:1px solid #1e2534;border-radius:10px;padding:11px 13px}
+.stat .k{font-size:11px;color:var(--dim2)}
+.stat .v{font-size:19px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+
+/* ---------- 日志 ---------- */
+pre.log{background:#0a0e15;border:1px solid #1a2130;border-radius:10px;
+  padding:12px 14px;font-family:ui-monospace,Consolas,"Courier New",monospace;
+  font-size:11.5px;line-height:1.75;max-height:290px;overflow-y:auto;
+  color:#9aa7bb;white-space:pre-wrap;word-break:break-all}
+pre.log::-webkit-scrollbar,.ans-wrap::-webkit-scrollbar{width:8px}
+pre.log::-webkit-scrollbar-thumb,.ans-wrap::-webkit-scrollbar-thumb{background:#2a3448;border-radius:9px}
+.lg-WARNING{color:#ffc65c}.lg-ERROR{color:#ff7b72}
+
+/* ---------- 答题表 ---------- */
+.ans-wrap{max-height:290px;overflow-y:auto;margin:-4px -4px 0}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--dim2);font-weight:500;font-size:11px;
+  padding:6px 8px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+td{padding:7px 8px;border-bottom:1px solid #1a202c;vertical-align:top}
+tr:hover td{background:#141a26}
+.badge{display:inline-block;padding:1px 7px;border-radius:99px;font-size:10.5px;font-weight:560}
+.b-ok{background:#123326;color:#4ade80}
+.b-cache{background:#152a3d;color:#60a5fa}
+.b-bad{background:#3a1a1a;color:#f87171}
+
+/* ---------- 复制块 ---------- */
+.code{background:#0a0e15;border:1px solid #1a2130;border-radius:9px;padding:11px 13px;
+  font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#8fb4f5;
+  white-space:pre-wrap;word-break:break-all;position:relative}
+.copy{margin-top:8px;display:flex;gap:8px;align-items:center}
+.hint{font-size:11.5px;color:var(--dim2)}
+.mt{margin-top:14px}
+.saved{color:var(--ok);font-size:12px;margin-left:8px}
+a{color:var(--acc);text-decoration:none}
+
+/* ---------- 移动端适配（手机 / 平板竖屏）---------- */
+@media(max-width:640px){
+  body{font-size:13px}
+  .wrap{padding:16px 12px 44px}
+  header{gap:10px;margin-bottom:16px}
+  .logo{width:34px;height:34px;border-radius:9px}
+  .logo svg{width:34px;height:34px}
+  h1{font-size:15.5px}
+  .pill{font-size:11px;padding:4px 9px}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .stat .v{font-size:16px}
+  .row2{grid-template-columns:1fr}
+  .card{padding:14px 14px;border-radius:12px}
+  .ans-wrap{overflow-x:auto}
+  table{min-width:520px}   /* 表格横向滚动，不挤爆布局 */
+  pre.log{max-height:220px;font-size:11px}
+}
+@media(max-width:900px) and (min-width:641px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+}
+
+/* ---------- 标签页 ---------- */
+.tabs{display:flex;gap:4px;padding:4px;background:#111722;border:1px solid var(--line);
+  border-radius:11px;margin-bottom:15px;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{padding:7px 14px;border-radius:8px;font-size:12.5px;color:var(--dim);cursor:pointer;
+  white-space:nowrap;transition:.15s;border:none;background:transparent;font-family:inherit}
+.tab:hover{color:var(--txt);background:#1a2130}
+.tab.on{background:linear-gradient(135deg,var(--acc),#3a6fd8);color:#fff;font-weight:560;
+  box-shadow:0 3px 10px #4c8dff33}
+.pane{display:none}
+.pane.on{display:block;animation:fade .18s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* ---------- 分组折叠 ---------- */
+.group{border:1px solid var(--line);border-radius:11px;margin-bottom:11px;overflow:hidden;
+  background:#121824}
+.group > summary{padding:10px 14px;cursor:pointer;font-size:12.5px;font-weight:560;
+  display:flex;align-items:center;gap:8px;list-style:none;user-select:none;transition:.15s}
+.group > summary::-webkit-details-marker{display:none}
+.group > summary::before{content:"▸";color:var(--dim2);font-size:10px;transition:.2s}
+.group[open] > summary::before{transform:rotate(90deg)}
+.group > summary:hover{background:#161d2b}
+.group[open] > summary{border-bottom:1px solid var(--line);background:#141b28}
+.group .inner{padding:14px 14px 4px}
+.group .badge-opt{margin-left:auto;font-size:10.5px;color:var(--dim2);font-weight:400}
+
+/* ---------- 推荐卡 ---------- */
+.rec{background:linear-gradient(135deg,#16233f,#1c1a33);border:1px solid #2b3d63;
+  border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.rec h3{font-size:13px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:7px}
+.rec p{font-size:12px;color:var(--dim);line-height:1.6;margin-bottom:10px}
+.rec .row{display:flex;gap:8px;flex-wrap:wrap}
+.warn-box{background:#2a1f10;border:1px solid #5c4218;border-radius:9px;padding:10px 13px;
+  font-size:12px;color:#ffc65c;margin-bottom:12px;line-height:1.6}
+.warn-box b{color:#ffd88a}
+
+/* ---------- 状态条 ---------- */
+.tipbar{display:flex;gap:8px;align-items:center;padding:9px 13px;border-radius:9px;
+  font-size:12px;margin-bottom:12px;line-height:1.5}
+.tipbar.ok{background:#10241a;border:1px solid #1e4a33;color:#6ee7a0}
+.tipbar.bad{background:#2a1313;border:1px solid #5c2020;color:#fca5a5}
+.tipbar.warn{background:#2a2010;border:1px solid #5c4218;color:#ffc65c}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">
+      <svg viewBox="0 0 64 64" width="40" height="40" aria-label="JY logo">
+        <defs>
+          <linearGradient id="jyg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ffffff" stop-opacity=".95"/>
+            <stop offset="1" stop-color="#ffffff" stop-opacity=".75"/>
+          </linearGradient>
+        </defs>
+        <text x="32" y="43" font-family="Arial,Helvetica,sans-serif" font-size="30"
+              font-weight="bold" fill="url(#jyg)" text-anchor="middle">JY</text>
+      </svg>
+    </div>
+    <div>
+      <h1>OCS 中转控制台</h1>
+      <div class="sub">AI 答题通道 · <span id="ver">v-</span></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="pill"><span class="dot" id="d-srv"></span>服务 <b id="srv">检测中</b></div>
+    <div class="pill"><span class="dot" id="d-ol"></span>Ollama <b id="ol">检测中</b></div>
+    <div class="pill">模型 <b id="mdl">-</b></div>
+  </header>
+
+  <div class="grid">
+    <!-- 左栏 -->
+    <div>
+      <div class="card">
+        <h2>运行状态 <span class="n">实时</span>
+          <span class="right"><button class="btn ghost" id="btn-diag">重新自检</button></span>
+        </h2>
+        <div class="stats">
+          <div class="stat"><div class="k">已答题</div><div class="v" id="st-total">0</div></div>
+          <div class="stat"><div class="k">成功</div><div class="v" id="st-ok" style="color:#4ade80">0</div></div>
+          <div class="stat"><div class="k">缓存命中</div><div class="v" id="st-cache" style="color:#60a5fa">0</div></div>
+          <div class="stat"><div class="k">失败</div><div class="v" id="st-fail" style="color:#f87171">0</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>自检结果 <span class="n" id="diag-sum"></span></h2>
+        <div id="diag-list"><div class="hint">正在检测…</div></div>
+      </div>
+
+      <div class="card">
+        <h2>最近答题 <span class="n">最近 120 条</span>
+          <span class="right"><button class="btn ghost" id="btn-clear-ans">清空显示</button></span>
+        </h2>
+        <div class="ans-wrap">
+          <table>
+            <thead><tr><th style="width:64px">时间</th><th>题目</th><th style="width:110px">答案</th>
+            <th style="width:82px">方式</th><th style="width:60px">耗时</th></tr></thead>
+            <tbody id="ans-body"><tr><td colspan="5" class="hint" style="padding:16px 8px">暂无记录，去 OCS 里答一题试试</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右栏 -->
+    <div>
+      <div class="card">
+        <h2>接入 OCS <span class="n">一键复制</span></h2>
+        <div class="code" id="ocs-cfg">加载中…</div>
+        <div class="copy">
+          <button class="btn primary" id="btn-copy">复制配置</button>
+          <span class="hint">OCS → 题库配置 → 自定义 → 粘贴</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>配置 <span class="n">改完即时生效</span></h2>
+        <div class="tabs">
+          <button class="tab on" data-pane="pane-basic">① 模型接入</button>
+          <button class="tab" data-pane="pane-acc">② 正确率增强</button>
+          <button class="tab" data-pane="pane-bank">③ 题库与订正</button>
+          <button class="tab" data-pane="pane-adv">④ 高级</button>
+        </div>
+
+        <div class="pane on" id="pane-basic">
+        <div class="rec">
+          <h3>💡 一键推荐</h3>
+          <p>按你的使用场景点一下，自动填好后端地址、模型与推荐参数。</p>
+          <div class="row">
+            <button class="btn primary" data-preset-models="zhipu">智谱免费（推荐）</button>
+            <button class="btn" data-preset-models="silicon">硅基流动免费</button>
+            <button class="btn" data-preset-models="local">本地 Ollama</button>
+          </div>
+        </div>
+        <div id="model-warn"></div>
+
+        <div class="field">
+          <label>模型后端</label>
+          <select id="f-backend">
+            <option value="ollama">本地 Ollama（离线，不外传数据）</option>
+            <option value="openai">云端 OpenAI 兼容（智谱 / 硅基流动等）</option>
+          </select>
+          <div class="tip">选云端需填下方 api_base 和 api_key；题目会发往云端服务器</div>
+        </div>
+        <div class="field" id="row-apibase" style="display:none">
+          <label>api_base <span style="color:#f87171">← 必填，必须带 https://</span></label>
+          <input type="text" id="f-apibase" placeholder="https://open.bigmodel.cn/api/paas/v4">
+          <div class="tip">智谱：https://open.bigmodel.cn/api/paas/v4 ｜ 硅基流动：https://api.siliconflow.cn/v1（不要带 /chat/completions）</div>
+        </div>
+        <div class="field" id="row-apikey" style="display:none">
+          <label>api_key <span style="color:#f87171">← 必填</span></label>
+          <input type="password" id="f-apikey" placeholder="粘贴你的密钥">
+          <div class="tip">仅保存在本机；已保存的只显示尾号，留空保持不变</div>
+        </div>
+        <div class="field">
+          <label>主模型（普通文本题）</label>
+          <select id="f-model"></select>
+          <div class="tip">从云端拉取的列表里选；智谱免费档选带 flash 字样的型号</div>
+        </div>
+        <div class="field">
+          <label>备用模型</label>
+          <select id="f-fallback"></select>
+          <div class="tip">主模型失败或限流时自动切换，建议与主模型不同</div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>视觉模型（图片题）</label>
+            <input type="text" id="f-vision" placeholder="如 glm-4v-flash / qwen2.5vl:7b">
+            <div class="tip">留空 = 图片题走主模型（看不懂图）</div>
+          </div>
+          <div class="field">
+            <label>代码模型（代码题）</label>
+            <input type="text" id="f-code" placeholder="不确定就留空">
+            <div class="tip">须填当前后端存在的模型，否则自动回落主模型</div>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>云端 token 上限</label>
+            <input type="number" id="f-maxtok" min="128" max="8192" step="128">
+            <div class="tip">思考型模型建议 1024+；太小会把正文截空</div>
+          </div>
+          <div class="field">
+            <label>整题预算（秒）</label>
+            <input type="number" id="f-budget" min="10" max="57">
+            <div class="tip">须小于 60 秒</div>
+          </div>
+        </div>
+        </div><!--/pane-basic-->
+
+        <div class="pane" id="pane-acc">
+        <div class="rec">
+          <h3>🎯 正确率三件套</h3>
+          <p>题库命中零成本秒回；答错订正越用越准；交叉验证让两个模型互检。</p>
+        </div>
+        <label class="switch"><input type="checkbox" id="f-bank" checked><span class="track"></span>题库与人工订正优先（命中不走模型）</label>
+        <label class="switch"><input type="checkbox" id="f-autoroute" checked><span class="track"></span>按题型自动路由（图片题/代码题用专用模型）</label>
+        <div class="row2">
+          <div class="field">
+            <label>交叉验证模式</label>
+            <select id="f-verify">
+              <option value="off">关闭（最快）</option>
+              <option value="fast">复核标注（不一致标低置信）</option>
+              <option value="full">复核+仲裁（最准，最慢）</option>
+            </select>
+            <div class="tip">用备用模型复核，会多花一次请求</div>
+          </div>
+          <div class="field">
+            <label>提示词预设（按学科）</label>
+            <select id="f-preset">
+              <option value="default">通用</option>
+              <option value="law">法律类</option>
+              <option value="medical">医学类</option>
+              <option value="math">数学/计算类</option>
+              <option value="engineering">理工类</option>
+              <option value="english">英语类</option>
+            </select>
+            <div class="tip">针对学科定制审题提示</div>
+          </div>
+        </div>
+        <div class="field" id="row-arb" style="display:none">
+          <label>仲裁模型（full 模式两个模型不一致时裁决）</label>
+          <input type="text" id="f-arbitrate" placeholder="留空 = 只标注不仲裁">
+          <div class="tip">建议填与主/复核模型都不同的第三个模型</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="f-cot"><span class="track"></span>难题先推理再作答 CoT（多选/计算题更准，稍慢）</label>
+        <div class="warn-box" id="cot-warn" style="display:none">
+          ⚠ <b>已开启 CoT</b>：思考型模型的推理过程会消耗大量 token。请确认「云端 token 上限」≥ 1024，否则正文可能被截空导致答案空白。
+        </div>
+        </div><!--/pane-acc-->
+
+        <div class="pane" id="pane-adv">
+        <div class="field">
+          <label>访问令牌（可选，安全）</label>
+          <input type="text" id="f-token" placeholder="留空=不鉴权；建议设一个">
+          <div class="tip">设置后所有接口（含 OCS 请求）都需携带；开启局域网访问时强烈建议。改后需重新复制 OCS 配置</div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>端口</label>
+            <input type="number" id="f-port" min="1" max="65535">
+            <div class="tip">改动需重启</div>
+          </div>
+          <div class="field">
+            <label>并发数</label>
+            <input type="number" id="f-conc" min="1" max="8">
+            <div class="tip">本地保持 1；云端可 2~4（需重启）</div>
+          </div>
+        </div>
+        <div class="field">
+          <label>节律延时（毫秒）</label>
+          <div class="row2">
+            <input type="number" id="f-dmin" min="0" max="15000" placeholder="最小">
+            <input type="number" id="f-dmax" min="0" max="15000" placeholder="最大">
+          </div>
+          <div class="tip">每题返回前补足到该区间，避免机械感</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="f-delay"><span class="track"></span>启用节律延时</label>
+        <label class="switch"><input type="checkbox" id="f-delaycache"><span class="track"></span>缓存命中时也延时</label>
+        <label class="switch"><input type="checkbox" id="f-autobrowser"><span class="track"></span>启动时打开本页面</label>
+        </div><!--/pane-adv-->
+
+        <div class="mt" style="display:flex;align-items:center;border-top:1px solid var(--line);padding-top:14px">
+          <button class="btn primary" id="btn-save">保存配置</button>
+          <span id="save-msg"></span>
+        </div>
+      </div>
+
+      <!-- ============ ③ 题库与订正 ============ -->
+      <div class="pane" id="pane-bank">
+        <div class="rec">
+          <h3>📚 题库优先 <span style="font-size:11px;color:var(--dim2);margin-left:auto" id="bank-sum">—</span></h3>
+          <p>导入历年题/作业题，命中直接返回、不消耗模型额度，正确率接近 100%。</p>
+        </div>
+        <div class="field">
+          <label>导入题库（题干 / A. 选项 / 答案：B 逐块粘贴，也支持单行「题干|A. xx|B. xx|答案：B」）</label>
+          <textarea id="bank-text" rows="5" style="width:100%;background:#0d1420;color:#dbe4f0;border:1px solid #1d2a3d;border-radius:6px;padding:8px;font-size:13px" placeholder="中国的首都是哪里？
+A. 上海
+B. 北京
+C. 广州
+答案：B"></textarea>
+        </div>
+        <div class="mt" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn primary" id="btn-bank-import">导入题库</button>
+          <button class="btn ghost" id="btn-bank-clear">清空题库</button>
+          <span id="bank-msg"></span>
+        </div>
+        <div class="field mt">
+          <label>答错订正（从「最近答题」里把答错的题改成正确答案，永久生效）</label>
+          <div id="recent-box" class="log" style="max-height:180px;overflow:auto;font-size:12px">加载中…</div>
+          <div class="mt" style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="fix-q" placeholder="题目（可从上面记录复制）" style="flex:1;min-width:120px;background:#0d1420;color:#dbe4f0;border:1px solid #1d2a3d;border-radius:6px;padding:6px 8px;font-size:13px">
+            <input type="text" id="fix-a" placeholder="正确答案" style="width:130px;background:#0d1420;color:#dbe4f0;border:1px solid #1d2a3d;border-radius:6px;padding:6px 8px;font-size:13px">
+            <button class="btn primary" id="btn-fix-save">保存订正</button>
+          </div>
+          <span id="fix-msg"></span>
+        </div>
+        <div class="field">
+          <label>已保存的订正</label>
+          <div id="corr-box" class="log" style="max-height:140px;overflow:auto;font-size:12px">加载中…</div>
+        </div>
+      </div><!--/.card 题库-->
+
+      <div class="card" style="margin-top:0">
+        <h2>运行日志 <span class="n">实时</span>
+          <span class="right"><button class="btn ghost" id="btn-pause">暂停</button></span>
+        </h2>
+        <pre class="log" id="logbox">等待日志…</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let paused = false, lastLogIdx = 0, firstLog = true, modelsCache = [];
+
+/* ---------------- 基础工具 ---------------- */
+function dot(el, state){ el.className = 'dot ' + (state || ''); }
+function myToken(){ return localStorage.getItem('relay_token') || ''; }
+async function api(path, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers,
+      myToken() ? {'X-Relay-Token': myToken()} : {});
+  const r = await fetch(path, opts);
+  if(r.status === 401){
+    const t = prompt('此服务已开启访问令牌，请输入 token：');
+    if(t !== null){ localStorage.setItem('relay_token', t.trim()); }
+    throw new Error('需要访问令牌（已记住，刷新后生效）');
+  }
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ---------------- 状态轮询 ---------------- */
+async function tick(){
+  try{
+    const d = await api('/api/status');
+    dot($('d-srv'),'ok'); $('srv').textContent = '运行中';
+    dot($('d-ol'), d.ollama ? 'ok' : 'bad');
+    $('ol').textContent = d.ollama ? '已连接' : '未连接';
+    $('mdl').textContent = d.model || '-';
+    $('ver').textContent = 'v' + (d.version || '-');
+    const s = d.stats || {};
+    $('st-total').textContent = s.total || 0;
+    $('st-ok').textContent = s.success || 0;
+    $('st-cache').textContent = s.cache || 0;
+    $('st-fail').textContent = s.fail || 0;
+    renderAnswers(d.answers || []);
+    renderLogs(d.logs || [], d.log_seq || 0);
+  }catch(e){
+    dot($('d-srv'),'bad'); $('srv').textContent = '已断开';
+    dot($('d-ol'),''); $('ol').textContent = '未知';
+  }
+}
+
+/* ---------------- 自检 ---------------- */
+const ICON = {ok:'✅', warn:'⚠️', fail:'❌'};
+async function runDiag(){
+  $('diag-list').innerHTML = '<div class="hint">正在检测…</div>';
+  $('btn-diag').disabled = true;
+  try{
+    const d = await api('/api/diagnose');
+    const s = d.summary;
+    $('diag-sum').textContent = `通过 ${s.ok} · 警告 ${s.warn} · 失败 ${s.fail}`;
+    $('diag-list').innerHTML = d.items.map(it => `
+      <div class="diag-item">
+        <div class="diag-ico">${ICON[it.status] || '•'}</div>
+        <div class="diag-body">
+          <div class="diag-label">${esc(it.label)}</div>
+          <div class="diag-detail">${esc(it.detail)}</div>
+          ${it.hint ? `<div class="diag-hint">${esc(it.hint)}</div>` : ''}
+        </div>
+        ${it.fix ? `<button class="btn-fix" data-fix="${it.fix}">修复</button>` : ''}
+      </div>`).join('');
+    document.querySelectorAll('[data-fix]').forEach(b => {
+      b.onclick = () => doFix(b.dataset.fix, b);
+    });
+    // 刷新模型下拉
+    if(d.models && d.models.length) fillModels(d.models, true);
+  }catch(e){
+    $('diag-list').innerHTML = '<div class="hint">自检失败：' + esc(e.message) + '</div>';
+  }finally{
+    $('btn-diag').disabled = false;
+  }
+}
+async function doFix(action, btn){
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '修复中…';
+  try{
+    const r = await api('/api/fix', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action})
+    });
+    btn.textContent = r.ok ? '已修复' : '失败';
+    if(!r.ok) alert('修复失败：' + r.message);
+    else setTimeout(runDiag, 800);
+  }catch(e){
+    btn.textContent = '失败'; alert('修复请求出错：' + e.message);
+  }finally{
+    setTimeout(()=>{ btn.disabled=false; btn.textContent = old; }, 1600);
+  }
+}
+
+/* ---------------- 日志 ---------------- */
+function renderLogs(logs, seq){
+  if(paused) return;
+  if(firstLog){ $('logbox').textContent = ''; firstLog = false; }
+  if(seq <= lastLogIdx) return;
+  const box = $('logbox');
+  const near = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  for(const l of logs){
+    if(l.i <= lastLogIdx) continue;
+    const line = document.createElement('div');
+    line.className = 'lg-' + l.level;
+    line.textContent = `${l.t}  ${l.msg}`;
+    box.appendChild(line);
+  }
+  lastLogIdx = seq;
+  while(box.childNodes.length > 300) box.removeChild(box.firstChild);
+  if(near) box.scrollTop = box.scrollHeight;
+}
+
+/* ---------------- 答题表 ---------------- */
+function renderAnswers(list){
+  if(!list.length) return;
+  const rows = list.slice().reverse().map(a => `
+    <tr>
+      <td style="color:#5f6b7f">${esc(a.t)}</td>
+      <td>${esc(a.q)}</td>
+      <td><b>${esc(a.a) || '<span style="color:#f87171">空</span>'}</b></td>
+      <td>${a.cached ? '<span class="badge b-cache">缓存</span>'
+            : (a.ok ? '<span class="badge b-ok">'+esc(a.match)+'</span>'
+                    : '<span class="badge b-bad">失败</span>')}</td>
+      <td style="color:#8b96a8">${a.cost != null ? a.cost.toFixed(1)+'s' : '-'}</td>
+    </tr>`).join('');
+  $('ans-body').innerHTML = rows;
+}
+
+/* ---------------- 配置 ---------------- */
+function fillModels(models, keepValue){
+  window.__models = models || [];
+  const curM = $('f-model').value, curF = $('f-fallback').value;
+  const opts = models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  $('f-model').innerHTML = opts;
+  $('f-fallback').innerHTML = '<option value="">（不使用）</option>' + opts;
+  if(keepValue && curM) $('f-model').value = curM;
+  if(keepValue && curF) $('f-fallback').value = curF;
+}
+
+async function loadConfig(){
+  const d = await api('/api/config');
+  const c = d.config;
+  window.__cfg = c;
+  if(d.models && d.models.length) fillModels(d.models, false);
+  else { $('f-model').innerHTML = `<option>${esc(c.model)}</option>`;
+         $('f-fallback').innerHTML = `<option>${esc(c.fallback_model||'')}</option>`; }
+  $('f-model').value = c.model;
+  $('f-fallback').value = c.fallback_model || '';
+  $('f-backend').value = c.backend || 'ollama';
+  $('f-apibase').value = c.api_base || '';
+  $('f-apikey').value = c.api_key || '';   // 后端已掩码（***尾号），原样回显
+  $('f-token').value = c.auth_token || ''; // 掩码回显
+  $('f-vision').value = c.vision_model || '';
+  $('f-code').value = c.code_model || '';
+  $('f-autoroute').checked = !!c.auto_route;
+  $('f-verify').value = c.verify_mode || 'off';
+  $('f-arbitrate').value = c.arbitrate_model || '';
+  $('row-arb').style.display = ($('f-verify').value === 'full') ? '' : 'none';
+  $('f-preset').value = c.prompt_preset || 'default';
+  $('f-cot').checked = !!c.cot_mode;
+  $('f-bank').checked = !!c.bank_enabled;
+  toggleCloud();
+  toggleCotWarn();
+  $('f-maxtok').value = c.cloud_max_tokens || 1024;
+  $('f-port').value = c.port;
+  $('f-conc').value = c.max_concurrency || 1;
+  $('f-budget').value = c.answer_budget;
+  checkModelHealth(c);
+  // 首次加载时建议先看「模型接入」页
+  $('f-dmin').value = c.delay_min_ms;
+  $('f-dmax').value = c.delay_max_ms;
+  $('f-delay').checked = !!c.human_delay;
+  $('f-delaycache').checked = !!c.delay_on_cache;
+  $('f-autobrowser').checked = !!c.auto_open_browser;
+  $('ocs-cfg').textContent = d.ocs_snippet || '';
+}
+
+function toggleCloud(){
+  const cloud = $('f-backend').value === 'openai';
+  $('row-apibase').style.display = cloud ? '' : 'none';
+  $('row-apikey').style.display = cloud ? '' : 'none';
+}
+$('f-backend').onchange = toggleCloud;
+$('f-verify').onchange = () => {
+  $('row-arb').style.display = $('f-verify').value === 'full' ? '' : 'none';
+};
+function toggleCotWarn(){
+  $('cot-warn').style.display = $('f-cot').checked ? '' : 'none';
+}
+$('f-cot').onchange = toggleCotWarn;
+
+/* ---- Tab 切换 ---- */
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+    document.querySelectorAll('.pane').forEach(x => x.classList.remove('on'));
+    t.classList.add('on');
+    const pane = $(t.dataset.pane);
+    if(pane) pane.classList.add('on');
+  };
+});
+
+/* ---- 配置体检：模型名在当前后端是否真实存在 ---- */
+function checkModelHealth(c){
+  const box = $('model-warn');
+  const models = (window.__models || []);
+  if(!models.length || !c.backend){ box.innerHTML=''; return; }
+  const lower = models.map(m => String(m).toLowerCase());
+  const probs = [];
+  const check = (label, val) => {
+    if(!val) return;
+    if(!lower.includes(String(val).toLowerCase())) probs.push(`${label}「${val}」`);
+  };
+  check('主模型', c.model);
+  check('视觉模型', c.vision_model);
+  check('代码模型', c.code_model);
+  if(probs.length){
+    box.innerHTML = `<div class="tipbar warn">⚠ ${probs.join('、')} 在当前后端不存在，会自动回落主模型。请从下拉列表重新选择或清空。</div>`;
+  } else { box.innerHTML = ''; }
+}
+
+/* ---- 一键推荐 ---- */
+const PRESETS = {
+  zhipu:  {backend:'openai', api_base:'https://open.bigmodel.cn/api/paas/v4',
+           vision_model:'glm-4v-flash', code_model:'', cloud_max_tokens:1024},
+  silicon:{backend:'openai', api_base:'https://api.siliconflow.cn/v1',
+           vision_model:'Qwen/Qwen2.5-VL-7B-Instruct', code_model:'Qwen/Qwen3-8B', cloud_max_tokens:1024},
+  local:  {backend:'ollama', vision_model:'qwen2.5vl:7b', code_model:'', cloud_max_tokens:1024}
+};
+document.querySelectorAll('[data-preset-models]').forEach(b => {
+  b.onclick = async () => {
+    const p = PRESETS[b.dataset.presetModels];
+    if(!p) return;
+    if(!confirm('将把后端地址与推荐模型写入配置（api_key 保持不变），继续？')) return;
+    const r = await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(Object.assign({}, p,
+        {verify_mode:'fast', prompt_preset:'default', cot_mode:false, bank_enabled:true}))});
+    alert(r.ok ? '已套用推荐配置，请检查 api_key 是否已填，然后保存并自检。' : (r.message||'失败'));
+    await loadConfig();
+  };
+});
+
+$('btn-save').onclick = async () => {
+  const payload = {
+    backend: $('f-backend').value,
+    api_base: $('f-apibase').value.trim(),
+    api_key: $('f-apikey').value.trim(),        // 留空或保持掩码 = 不覆盖
+    auth_token: $('f-token').value.trim(),
+    model: $('f-model').value,
+    fallback_model: $('f-fallback').value,
+    vision_model: $('f-vision').value.trim(),
+    code_model: $('f-code').value.trim(),
+    auto_route: $('f-autoroute').checked,
+    verify_mode: $('f-verify').value,
+    arbitrate_model: $('f-arbitrate').value.trim(),
+    prompt_preset: $('f-preset').value,
+    cot_mode: $('f-cot').checked,
+    bank_enabled: $('f-bank').checked,
+    cloud_max_tokens: $('f-maxtok').value,
+    port: $('f-port').value,
+    max_concurrency: $('f-conc').value,
+    answer_budget: $('f-budget').value,
+    delay_min_ms: $('f-dmin').value,
+    delay_max_ms: $('f-dmax').value,
+    human_delay: $('f-delay').checked,
+    delay_on_cache: $('f-delaycache').checked,
+    auto_open_browser: $('f-autobrowser').checked,
+  };
+  $('btn-save').disabled = true;
+  $('save-msg').className = 'hint'; $('save-msg').textContent = ' 保存中…';
+  try{
+    const r = await api('/api/config', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if(r.ok){
+      // 令牌可能是本次新设的，同步到本地存储
+      const t = $('f-token').value.trim();
+      if(t && !t.startsWith('***')) localStorage.setItem('relay_token', t);
+      $('save-msg').className = 'saved'; $('save-msg').textContent = ' ' + r.message;
+      loadConfig();
+    }else{
+      $('save-msg').className = 'hint'; $('save-msg').style.color = 'var(--bad)';
+      $('save-msg').textContent = ' ' + r.message;
+    }
+  }catch(e){
+    $('save-msg').textContent = ' 保存失败：' + e.message;
+  }finally{
+    $('btn-save').disabled = false;
+    setTimeout(()=>{ $('save-msg').textContent=''; }, 4000);
+  }
+};
+
+/* ---------------- 题库与订正 ---------------- */
+async function loadBank(){
+  try{
+    const b = await api('/api/bank');
+    $('bank-sum').textContent = `题库 ${b.count} 条 · 订正 ${b.corrections} 条`;
+    const c = await api('/api/corrections');
+    const rrows = (c.recent||[]).map(a => `
+      <div style="padding:4px 6px;border-bottom:1px solid #16202e">
+        <span style="color:#8b96a8">${esc(a.t)}</span>
+        ${esc(a.q).slice(0,40)} → <b>${esc(a.a)||'空'}</b>
+        <button class="btn ghost" style="padding:1px 8px;font-size:11px"
+          onclick="pickFix(${JSON.stringify(a.q).replace(/"/g,'&quot;')})">选用</button>
+      </div>`).join('');
+    $('recent-box').innerHTML = rrows || '<span style="color:#8b96a8">暂无答题记录</span>';
+    const crows = (c.corrections||[]).map(x => `
+      <div style="padding:4px 6px;border-bottom:1px solid #16202e">
+        ⭐ ${esc(x.question||'').slice(0,36)} → <b>${esc(x.answer)}</b>
+        （已用 ${x.hits||0} 次）
+        <button class="btn ghost" style="padding:1px 8px;font-size:11px"
+          onclick="delFix('${esc(x.key)}')">删除</button>
+      </div>`).join('');
+    $('corr-box').innerHTML = crows || '<span style="color:#8b96a8">暂无订正记录</span>';
+  }catch(e){ $('recent-box').textContent = '加载失败：'+e.message; }
+}
+function pickFix(q){ $('fix-q').value = q; $('fix-a').focus(); }
+window.pickFix = pickFix;
+
+$('btn-bank-import').onclick = async () => {
+  const text = $('bank-text').value.trim();
+  if(!text){ $('bank-msg').textContent = ' 先粘贴题库文本'; return; }
+  $('btn-bank-import').disabled = true;
+  try{
+    const r = await api('/api/bank', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({text})});
+    $('bank-msg').textContent = ' ' + (r.message || (r.errors||[]).join('；'));
+    if(r.total != null) $('bank-sum').textContent = `题库 ${r.total} 条`;
+    $('bank-text').value = '';
+  }catch(e){ $('bank-msg').textContent = ' 导入失败：'+e.message; }
+  finally{ $('btn-bank-import').disabled = false;
+    setTimeout(()=>{ $('bank-msg').textContent=''; }, 6000); loadBank(); }
+};
+$('btn-bank-clear').onclick = async () => {
+  if(!confirm('确定清空整个题库？')) return;
+  await api('/api/bank', {method:'DELETE'});
+  $('bank-msg').textContent = ' 已清空'; loadBank();
+};
+$('btn-fix-save').onclick = async () => {
+  const q = $('fix-q').value.trim(), a = $('fix-a').value.trim();
+  if(!q || !a){ $('fix-msg').textContent = ' 题目和正确答案都要填'; return; }
+  const r = await api('/api/corrections', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({question:q, answer:a})});
+  $('fix-msg').textContent = r.ok ? ' ✓ '+r.message : ' '+(r.message||r.error||'失败');
+  if(r.ok){ $('fix-q').value=''; $('fix-a').value=''; }
+  setTimeout(()=>{ $('fix-msg').textContent=''; }, 5000); loadBank();
+};
+async function delFix(key){
+  await api('/api/corrections?key='+encodeURIComponent(key), {method:'DELETE'});
+  loadBank();
+}
+window.delFix = delFix;
+
+/* ---------------- 复制 ---------------- */
+$('btn-copy').onclick = async () => {
+  const text = $('ocs-cfg').textContent;
+  try{
+    await navigator.clipboard.writeText(text);
+  }catch(e){
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  const b = $('btn-copy'), old = b.textContent;
+  b.textContent = '✓ 已复制'; setTimeout(()=> b.textContent = old, 1500);
+};
+
+$('btn-diag').onclick = runDiag;
+$('btn-clear-ans').onclick = () => {
+  $('ans-body').innerHTML = '<tr><td colspan="5" class="hint" style="padding:16px 8px">已清空显示（服务端记录仍在）</td></tr>';
+};
+$('btn-pause').onclick = (e) => {
+  paused = !paused;
+  e.target.textContent = paused ? '继续' : '暂停';
+};
+
+/* ---------------- 启动 ---------------- */
+(async function init(){
+  await tick();
+  await Promise.all([runDiag(), loadConfig(), loadBank()]);
+  setInterval(tick, 1500);
+  setInterval(loadBank, 10000);
+})();
+</script>
+</body>
+</html>

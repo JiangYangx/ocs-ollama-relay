@@ -1,0 +1,61 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 虚拟环境
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# ---- PyInstaller ----
+# 打包中间产物（build/ 已在上方忽略）
+*.manifest
+*.spec.bak
+
+# ---- 运行期生成 ----
+# 注意：config.json 故意入库，它是带说明的默认配置模板。
+# 你自己的改动如果不想提交，用 `git update-index --skip-worktree config.json`
+relay.log
+*.log
+logs/
+config.json.tmp
+config.json.bak
+
+# ---- 编辑器 / IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---- 测试与临时 ----
+.pytest_cache/
+.coverage
+htmlcov/
+tmp/
+*.tmp
+*.bak
