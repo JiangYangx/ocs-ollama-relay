@@ -25,9 +25,24 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     ASSET_DIR = BASE_DIR
 sys.path.insert(0, BASE_DIR)
-sys.argv = [sys.argv[0], "--no-browser"]
+
+# v2.0：保留用户传入的参数（--port / --model 等），只强制补 --no-browser。
+# 旧写法 sys.argv = [argv0, "--no-browser"] 会把 --port 整个吞掉，
+# 导致「exe --port 5098」仍然监听配置里的 5000。
+_argv = list(sys.argv)
+if "--no-browser" not in _argv:
+    _argv.append("--no-browser")
+sys.argv = _argv
 
 PORT = 5000
+
+
+def _argv_port() -> int:
+    """命令行 --port 优先于配置文件里的端口。"""
+    try:
+        return int(sys.argv[sys.argv.index("--port") + 1])
+    except (ValueError, IndexError):
+        return 0
 
 
 def _server_up(port: int) -> bool:
@@ -50,7 +65,7 @@ def _quit(icon=None, item=None):
 def main() -> None:
     global PORT
     import ocs_relay  # noqa: E402  导入即完成配置加载（app.run 只在 __main__ 才执行）
-    PORT = int(ocs_relay.CFG.get("port", 5000))
+    PORT = _argv_port() or int(ocs_relay.CFG.get("port", 5000))
 
     threading.Thread(target=ocs_relay.main, daemon=True).start()
 

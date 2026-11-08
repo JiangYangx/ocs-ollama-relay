@@ -60,6 +60,11 @@
 - **配置迁移永远不触发**：`DEFAULT_CONFIG` 自带 `config_version: 2`，合并后读到的永远是「最新版」。改为按文件里的原始值判断
 - **题库 JSON 导入题干丢失**：`items` 里用 `title` 而非 `question` 时题干为空，选项整体错位成题干。现在兼容多种字段名，并在题干/答案缺失时直接跳过
 - `/api/bank/import` 选项文本含 `|` 时会破坏单行格式，导入前替换为 `/`
+- **窗口版 exe 吞掉命令行参数**：`tray_app.py` 里 `sys.argv = [argv0, "--no-browser"]` 把
+  `--port` / `--model` 全部丢弃，`JY-Relay.exe --port 5098` 仍然监听 5000。现在保留原参数，
+  端口按「命令行 > 配置文件」取
+- **`tools/build_installer.bat` 在装了多个 Python 的机器上失败**：脚本直接调 `python`，
+  可能指向没有 PyInstaller 的解释器。现在支持 `set PYTHON=...` 指定，并在打包前做依赖预检
 
 ### 使用提示
 - 多模型投票在本地两个 7B 模型上会互相抢显存（实测 12s），**建议只在云端后端开启**；本地想快就把 `vote_models` 留空

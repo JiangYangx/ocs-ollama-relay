@@ -1,11 +1,26 @@
 @echo off
 rem 一键出安装包：窗口版 exe + Inno Setup 打包
 rem 前置：已 pip install pyinstaller（pystray pillow 可选）；已安装 Inno Setup 6
+rem 机器上有多个 Python 时，用 PYTHON 指定打包用的解释器：
+rem     set PYTHON=C:\Python313\python.exe
+rem     tools\build_installer.bat
 chcp 65001 >nul
 cd /d "%~dp0.."
 
+rem 没指定就用 PATH 里的 python；也可写 py -3
+if "%PYTHON%"=="" set PYTHON=python
+
+echo [0/2] 检查打包依赖（%PYTHON%）...
+%PYTHON% -c "import PyInstaller" >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] %PYTHON% 里没有 PyInstaller
+  echo         先安装：%PYTHON% -m pip install pyinstaller
+  echo         或指定另一个解释器：set PYTHON=完整路径\python.exe
+  exit /b 1
+)
+
 echo [1/2] 构建窗口版 exe ...
-python tools/build_app.py || goto :err
+%PYTHON% tools/build_app.py || goto :err
 
 echo [2/2] 生成安装包 ...
 rem 安全：dist\config.json 可能被本机运行中的程序写入真实 api_key，
