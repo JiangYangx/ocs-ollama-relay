@@ -332,6 +332,33 @@ class Store:
             "by_day": by_day,
         }
 
+    # ---------------- 首页摘要（人话） ----------------
+    def today_summary(self) -> dict:
+        """今天答了多少、平均多久、抽查正确率多少 —— 首页只显示这三个数。"""
+        lt = time.localtime()
+        start = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday,
+                             0, 0, 0, 0, 0, -1))
+        m = self._query(
+            "SELECT COUNT(*) c, AVG(ms) a, "
+            "SUM(CASE WHEN ok=1 THEN 1 ELSE 0 END) ok "
+            "FROM metrics WHERE ts>=?", (start,))
+        q = self._query(
+            "SELECT COUNT(*) c, COALESCE(SUM(correct),0) ok FROM quiz WHERE ts>=?",
+            (start,))
+        cnt = (m[0]["c"] if m else 0) or 0
+        avg = (m[0]["a"] if m else 0) or 0
+        ok = (m[0]["ok"] if m else 0) or 0
+        qt = (q[0]["c"] if q else 0) or 0
+        qok = (q[0]["ok"] if q else 0) or 0
+        return {
+            "answered": cnt,
+            "ok": ok,
+            "avg_ms": round(avg, 0),
+            "checked": qt,
+            "correct": qok,
+            "acc": round(qok / qt * 100, 1) if qt else None,
+        }
+
     # ---------------- 指标 ----------------
     def metric_add(self, kind: str, route: str, ms: float, ok: bool, cached: bool):
         self._exec(

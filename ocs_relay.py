@@ -81,10 +81,10 @@ except Exception:                                     # pragma: no cover
 # --------------------------------------------------------------------------- #
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
-    APP_VERSION = "1.4.0"
+    APP_VERSION = "1.5.0"
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    APP_VERSION = "1.4.0"
+    APP_VERSION = "1.5.0"
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 LOG_PATH = os.path.join(BASE_DIR, "relay.log")
@@ -184,6 +184,9 @@ DEFAULT_CONFIG = {
 
     # ---------------- 启动行为 ----------------
     "auto_open_browser": True,        # 启动后自动打开控制台
+    # ---------------- v1.5 产品化 ----------------
+    "update_check": True,             # 启动时检查 GitHub 新版本（失败静默，不影响使用）
+    "update_repo": "JiangYangx/ocs-ollama-relay",  # 检查更新的仓库（owner/repo）
 }
 
 # 允许通过界面修改的字段及其类型（防止误传任意字段写坏配置）
@@ -220,6 +223,8 @@ EDITABLE_FIELDS = {
     "delay_on_cache": bool,
     "verbose": bool,
     "auto_open_browser": bool,
+    "update_check": bool,
+    "update_repo": str,
     # ---- v1.3 ----
     "tier": str,
     "auto_cot": bool,
@@ -1844,6 +1849,7 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
         return {
             "question": title, "answer": "", "success": False,
             "error": "队列已满或等待超时", "cached": False,
+            "hint": "同时来的题太多，等几秒会自动恢复",
         }
     try:
         # ---- v1.3 前置文本清洗（只作用于送模型的内容，不改题库 key）----
@@ -2118,7 +2124,10 @@ def _handle():
         })
 
     try:
-        return jsonify(answer_question(title, options, qtype, images, suggestion))
+        res = answer_question(title, options, qtype, images, suggestion)
+        if isinstance(res, dict) and not res.get("success", True) and not res.get("hint"):
+            res["hint"] = _fail_hint(res.get("error", ""))
+        return jsonify(res)
     except Exception as e:
         log.exception("处理异常")
         # 失败也走节律，避免"秒失败"成为特征
@@ -2128,7 +2137,32 @@ def _handle():
             pass
         return jsonify({
             "question": title, "answer": "", "success": False, "error": str(e),
+            "hint": _fail_hint(str(e)),
         }), 200   # 仍返回 200，OCS 才能在 handler 里拿到 error 字段
+
+
+def _fail_hint(err: str) -> str:
+    """把底层错误翻译成一句人话，首页/客户端直接展示。"""
+    e = (err or "").lower()
+    if not e:
+        return ""
+    if "队列" in err:
+        return "同时来的题太多，等几秒会自动恢复"
+    if "not found" in e or "try pulling" in e or "no such model" in e:
+        return "模型还没下载，去设置里点「一键下载」"
+    if "401" in e or "unauthorized" in e or "invalid api key" in e or "api key" in e:
+        return "密钥无效或过期，去设置里重新填"
+    if "429" in e or "rate limit" in e or "quota" in e:
+        return "模型服务限流了，等一会儿或换备用模型"
+    if "timed out" in e or "timeout" in e:
+        return "模型响应太慢，稍后重试或换个小模型"
+    if "connection" in e or "refused" in e or "max retries" in e or "failed to establish" in e:
+        return "连不上模型服务，确认 Ollama 已启动、地址没写错"
+    if "连不上" in err or "网络" in err or "api_base" in err:
+        return "连不上模型服务，检查网络或服务地址是否填对"
+    if "404" in e:
+        return "接口地址不对，检查服务地址是否填错"
+    return ""
 
 
 @app.route("/api/qa", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -2208,6 +2242,7 @@ def api_status():
 
     return jsonify({
         "version": APP_VERSION,
+        "backend": CFG.get("backend", "ollama"),
         "ollama": _OLLAMA_STATE["ok"],
         "model": CFG.get("model"),
         "stats": stats,
@@ -2470,6 +2505,211 @@ def api_quiz_stats():
         return jsonify(STORE.quiz_stats(14))
     except Exception as e:
         return jsonify({"total": 0, "acc": None, "error": str(e)})
+
+
+# --------------------------------------------------------------------------- #
+# v1.5 产品化：首页摘要 / 更新检查 / 开机自启
+# --------------------------------------------------------------------------- #
+@app.route("/api/summary", methods=["GET"])
+def api_summary():
+    """首页三个数字：今天答了多少、正确率、平均耗时。"""
+    empty = {"answered": 0, "ok": 0, "avg_ms": 0, "checked": 0,
+             "correct": 0, "acc": None}
+    try:
+        s = STORE.today_summary() if STORE is not None else dict(empty)
+    except Exception:
+        s = dict(empty)
+    backend = CFG.get("backend", "ollama")
+    configured = True
+    if backend == "openai":
+        configured = bool(CFG.get("api_key")) and bool(CFG.get("model"))
+    else:
+        configured = bool(CFG.get("model"))
+    try:
+        bank_n = STORE.bank_count() if STORE is not None else 0
+    except Exception:
+        bank_n = 0
+    return jsonify({
+        **s,
+        "version": APP_VERSION,
+        "model": CFG.get("model"),
+        "backend": backend,
+        "configured": configured,
+        "bank_count": bank_n,
+        "update_available": _UPDATE_STATE.get("latest") if _UPDATE_STATE.get("has_update") else None,
+    })
+
+
+_UPDATE_STATE = {"ts": 0.0, "latest": None, "has_update": False,
+                 "url": "", "notes": "", "error": ""}
+
+
+def _ver_tuple(v: str) -> tuple:
+    """把 v1.10.2 / 1.9 转成可比较的元组，避免字符串比较 1.10 < 1.9 的坑。"""
+    nums = re.findall(r"\d+", v or "")
+    return tuple(int(x) for x in nums[:3]) if nums else (0,)
+
+
+def _check_update(force: bool = False) -> dict:
+    """查 GitHub 最新 Release。离线/限流/仓库不存在都静默失败，不影响使用。"""
+    now = time.time()
+    if (not force and _UPDATE_STATE["ts"] and
+            now - _UPDATE_STATE["ts"] < 6 * 3600):
+        return dict(_UPDATE_STATE)
+    _UPDATE_STATE.update({"ts": now, "error": ""})
+    if not CFG.get("update_check", True):
+        _UPDATE_STATE.update({"error": "disabled"})
+        return dict(_UPDATE_STATE)
+    repo = str(CFG.get("update_repo") or "").strip().strip("/")
+    if "/" not in repo:
+        _UPDATE_STATE.update({"error": "update_repo 未配置（格式 owner/repo）"})
+        return dict(_UPDATE_STATE)
+    try:
+        r = requests.get(
+            f"https://api.github.com/repos/{repo}/releases/latest",
+            timeout=3.5,
+            headers={"Accept": "application/vnd.github+json",
+                     "User-Agent": f"JY-Relay/{APP_VERSION}"},
+        )
+        if r.status_code == 404:
+            _UPDATE_STATE.update({"error": "仓库还没有 Release"})
+            return dict(_UPDATE_STATE)
+        r.raise_for_status()
+        j = r.json() or {}
+        latest = str(j.get("tag_name") or "").lstrip("vV")
+        has = bool(latest) and _ver_tuple(latest) > _ver_tuple(APP_VERSION)
+        _UPDATE_STATE.update({
+            "latest": latest or None,
+            "has_update": has,
+            "url": j.get("html_url") or f"https://github.com/{repo}/releases",
+            "notes": (j.get("body") or "")[:2000],
+        })
+    except Exception as e:
+        _UPDATE_STATE.update({"error": f"检查更新失败：{e.__class__.__name__}"})
+    return dict(_UPDATE_STATE)
+
+
+@app.route("/api/update/check", methods=["GET"])
+def api_update_check():
+    force = request.args.get("force") in ("1", "true", "yes")
+    st = _check_update(force=force)
+    return jsonify({
+        "current": APP_VERSION,
+        "latest": st.get("latest"),
+        "has_update": bool(st.get("has_update")),
+        "url": st.get("url") or "",
+        "notes": st.get("notes") or "",
+        "error": st.get("error") or "",
+    })
+
+
+def _autostart_command() -> str:
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}" --no-browser'
+    py = sys.executable
+    if os.name == "nt":
+        pyw = os.path.join(os.path.dirname(py), "pythonw.exe")
+        if os.path.exists(pyw):
+            py = pyw
+    return f'"{py}" "{os.path.abspath(__file__)}" --no-browser'
+
+
+def _autostart_file() -> str:
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/LaunchAgents/com.jyrelay.plist")
+    return os.path.expanduser("~/.config/autostart/jy-relay.desktop")
+
+
+def _autostart_enabled() -> bool:
+    if os.name == "nt":
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                 r"Software\Microsoft\Windows\CurrentVersion\Run")
+            try:
+                winreg.QueryValueEx(key, "JYRelay")
+                return True
+            finally:
+                winreg.CloseKey(key)
+        except Exception:
+            return False
+    return os.path.exists(_autostart_file())
+
+
+def _autostart_set(enabled: bool) -> tuple[bool, str]:
+    if os.name == "nt":
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                 r"Software\Microsoft\Windows\CurrentVersion\Run",
+                                 0, winreg.KEY_SET_VALUE)
+            try:
+                if enabled:
+                    winreg.SetValueEx(key, "JYRelay", 0, winreg.REG_SZ,
+                                      _autostart_command())
+                else:
+                    try:
+                        winreg.DeleteValue(key, "JYRelay")
+                    except FileNotFoundError:
+                        pass
+            finally:
+                winreg.CloseKey(key)
+            return True, ("已设为开机启动" if enabled else "已关闭开机启动")
+        except Exception as e:
+            return False, f"设置失败：{e}"
+    path = _autostart_file()
+    if not enabled:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+            return True, "已关闭开机启动"
+        except Exception as e:
+            return False, f"设置失败：{e}"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        cmd = _autostart_command()
+        if sys.platform == "darwin":
+            plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.jyrelay</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{sys.executable}</string>
+    <string>{os.path.abspath(__file__)}</string>
+    <string>--no-browser</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+</dict></plist>
+"""
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(plist)
+        else:
+            desktop = f"""[Desktop Entry]
+Type=Application
+Name=JY 答题助手
+Comment=本地大模型答题中转
+Exec={cmd}
+Terminal=false
+X-GNOME-Autostart-enabled=true
+"""
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(desktop)
+        return True, "已设为开机启动"
+    except Exception as e:
+        return False, f"设置失败：{e}"
+
+
+@app.route("/api/autostart", methods=["GET", "POST"])
+def api_autostart():
+    if request.method == "GET":
+        return jsonify({"supported": True, "enabled": _autostart_enabled(),
+                        "path": "HKCU\\Run" if os.name == "nt" else _autostart_file()})
+    data = request.get_json(silent=True) or {}
+    enabled = bool(data.get("enabled", True))
+    ok, msg = _autostart_set(enabled)
+    log.info("开机自启：%s（%s）", "开" if enabled else "关", msg)
+    return jsonify({"ok": ok, "enabled": _autostart_enabled(), "message": msg})
 
 
 @app.route("/api/config/import", methods=["POST"])

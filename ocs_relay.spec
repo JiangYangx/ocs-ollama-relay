@@ -36,13 +36,16 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         # 排除无关大模块，显著减小体积
-        'tkinter', 'unittest', 'pydoc_data', 'xmlrpc', 'sqlite3',
+        # 注意：sqlite3 绝不能排除——jy_store 依赖它（v1.3+ 核心存储）
+        'tkinter', 'unittest', 'pydoc_data', 'xmlrpc',
         'multiprocessing', 'concurrent.futures',
     ],
     noarchive=False,
 )
 
 pyz = PYZ(a.pure)
+
+ICON = os.path.join(ROOT, 'assets', 'jy.ico')
 
 exe = EXE(
     pyz,
@@ -57,7 +60,8 @@ exe = EXE(
     upx=False,                 # UPX 压缩会显著增加杀软误报率（#9），宁可大一点
     upx_exclude=[],
     runtime_tmpdir=None,       # 单文件模式
-    console=True,              # 保留黑窗口：用户能看到日志、Ctrl+C 可退出
+    console=True,              # 控制台版保留黑窗口：能看日志、Ctrl+C 可退出
+    icon=ICON if os.path.exists(ICON) else None,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

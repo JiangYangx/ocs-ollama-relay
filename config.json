@@ -62,5 +62,7 @@
   "delay_on_cache": true,
   "jitter_model": true,
   "max_gap_ms": 6000,
-  "auto_open_browser": true
+  "auto_open_browser": true,
+  "update_check": true,
+  "update_repo": "JiangYangx/ocs-ollama-relay"
 }

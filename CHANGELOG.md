@@ -2,6 +2,31 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.5.0] - 2026-11-08
+
+> 主题：像一个正经软件。功能不加不减，把「控制台」变成「答题助手」。
+
+### Added
+- **单入口首页**：打开只有状态、三个数字（今天答题 / 最近正确率 / 平均耗时）和「开始答题」，全部参数收进「⚙ 设置」
+- **开始答题三步弹层**：复制配置 → 粘到客户端 → 手机扫码，不用翻文档
+- **开机自启**：设置页一键开关（Windows 注册表 / Linux autostart / macOS LaunchAgent）
+- **自动检查更新**：启动查 GitHub 最新 Release，有新版顶部提示条；3 秒超时静默失败，结果缓存 6 小时，可在设置关闭
+- **错误说人话**：`/api/qa` 失败新增 `hint` 字段（模型没下载 / 密钥无效 / 限流 / 连不上，各给一句中文）
+- **今日摘要接口**：`GET /api/summary`；`/api/status` 新增 `backend`
+- **品牌图标**：`assets/jy.ico` / `jy.png`，exe 不再是默认图标
+
+### Changed
+- 首页文案去术语化：不出现 p50/p95/token/RAG；「最近答题」列表移到首页
+- 档位说明改为「快一点 / 正常 / 准一点，参数自动配套」
+
+### Fixed
+- **打包配置误排除 `sqlite3`**：1.4.0 的 exe 可能因此无法持久化（题库/历史不落盘），1.5.0 重新打包后恢复，请务必更新
+
+### 新增文件
+- `tray_app.py`（托盘入口，可选依赖 pystray）、`tools/build_app.py`（窗口版构建）、
+  `ocs_relay_app.spec`（无黑框打包配置）、`installer.iss` + `tools/build_installer.bat`（Windows 安装包）
+
+
 ## [1.4.0] - 2026-11-08
 
 ### Added

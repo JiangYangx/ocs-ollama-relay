@@ -265,6 +265,43 @@ a{color:var(--acc);text-decoration:none}
 }
 .drop:hover,.drop.over{border-color:#4c8dff;background:#141b2b;color:#a9c4ff}
 
+/* ---------- v1.5 首页 ---------- */
+.navsw{display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px;margin-left:8px}
+.navbtn{border:0;background:transparent;color:var(--dim);font-family:inherit;font-size:12.5px;padding:6px 12px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.navbtn.on{background:#23304a;color:var(--txt)}
+.hero{background:linear-gradient(180deg,#171d2b,#141a26);border:1px solid var(--line);
+  border-radius:18px;padding:38px 24px 30px;text-align:center;margin-bottom:18px;position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:-40% 20% auto;height:200px;
+  background:radial-gradient(closest-side,#4c8dff26,transparent);pointer-events:none}
+.hero-state{font-size:14px;display:inline-flex;align-items:center;gap:8px;color:var(--dim);position:relative}
+.hero-state b{color:var(--txt);font-size:18px;font-weight:650}
+.hero-sub{color:var(--dim2);font-size:12.5px;margin-top:6px;position:relative}
+.hero-stats{display:flex;justify-content:center;gap:48px;margin:26px 0 24px;flex-wrap:wrap;position:relative}
+.hs b{display:block;font-size:26px;font-weight:650;letter-spacing:.3px}
+.hs span{font-size:12px;color:var(--dim2)}
+.btn-xl{font-size:16px;padding:13px 44px;border-radius:12px}
+.hero-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;position:relative}
+.hero-note{margin-top:16px;font-size:12px;color:var(--dim2);position:relative}
+.upbar{display:flex;align-items:center;gap:10px;background:#1d2b1f;border:1px solid #2f5134;
+  color:#a7e3b0;padding:8px 14px;border-radius:10px;font-size:12.5px;margin-bottom:14px}
+.upbar a{color:#7fd8ff;text-decoration:none}
+.up-x{margin-left:auto;background:none;border:0;color:#6d8b72;cursor:pointer;font-size:14px}
+.steps{margin:6px 0 0 18px;color:var(--dim);font-size:13px;line-height:1.9}
+.toast{position:fixed;right:18px;bottom:18px;background:#1b2333;border:1px solid #33405a;
+  color:var(--txt);padding:10px 14px;border-radius:10px;font-size:13px;z-index:80;
+  box-shadow:0 10px 30px #0008;max-width:320px}
+body.light .hero{background:#fff}
+body.light .navbtn.on{background:#e2e9f7}
+body.light .upbar{background:#eaf7ec;border-color:#bfe3c6;color:#256b33}
+body.light .upbar a{color:#1d4ed8}
+@media(max-width:720px){
+  .hero{padding:26px 14px 22px}
+  .hero-stats{gap:22px}
+  .hs b{font-size:22px}
+  .btn-xl{width:100%;padding:13px 20px}
+  .navsw{margin-left:0}
+}
+
 </style>
 </head>
 <body>
@@ -284,22 +321,92 @@ a{color:var(--acc);text-decoration:none}
       </svg>
     </div>
     <div>
-      <h1>JY Relay 中转控制台</h1>
+      <h1>JY 答题助手</h1>
       <div class="sub">大模型中转 · <span id="ver">v-</span></div>
     </div>
     <div class="spacer"></div>
     <div class="pill"><span class="dot" id="d-srv"></span>服务 <b id="srv">检测中</b></div>
     <div class="pill"><span class="dot" id="d-ol"></span>Ollama <b id="ol">检测中</b></div>
     <div class="pill">模型 <b id="mdl">-</b></div>
+    <div class="navsw" id="navsw">
+      <button class="navbtn on" data-view="home">首页</button>
+      <button class="navbtn" data-view="adv">⚙ 设置</button>
+    </div>
     <button class="btn ghost" id="btn-theme" title="切换明暗主题" style="margin-left:8px">🌙</button>
   </header>
 
+  <!-- ============ v1.5 首页 ============ -->
+  <div id="view-home">
+    <div id="update-bar" class="upbar" style="display:none">
+      <span id="up-text">有新版本可用</span>
+      <a id="up-link" href="#" target="_blank" rel="noopener">去看看 →</a>
+      <button class="up-x" onclick="hideUpdate()" title="这次不提醒">✕</button>
+    </div>
+
+    <div class="hero">
+      <div class="hero-state"><span class="dot" id="h-dot"></span><b id="h-state">正在启动…</b></div>
+      <div class="hero-sub" id="h-sub">正在连接模型服务</div>
+      <div class="hero-stats">
+        <div class="hs"><b id="h-today">0</b><span>今天答题</span></div>
+        <div class="hs"><b id="h-acc">—</b><span>最近正确率</span></div>
+        <div class="hs"><b id="h-avg">—</b><span>平均耗时</span></div>
+      </div>
+      <div class="hero-btns">
+        <button class="btn primary btn-xl" id="btn-start">开始答题</button>
+        <button class="btn" id="btn-quiz-home">测一下准确率</button>
+        <button class="btn ghost" id="btn-diag-home">一键体检</button>
+      </div>
+      <div class="hero-note" id="h-note">第一次用？点「开始答题」，三步接入，约 2 分钟。</div>
+    </div>
+
+    <div class="grid">
+      <div>
+      <div class="card">
+                <h2>最近请求 <span class="n">最近 120 条</span>
+                  <span class="right"><button class="btn ghost" id="btn-clear-ans">清空显示</button></span>
+                </h2>
+                <div class="ans-wrap">
+                  <table>
+                    <thead><tr><th style="width:64px">时间</th><th>题目</th><th style="width:110px">答案</th>
+                    <th style="width:76px">来源</th><th style="width:56px">耗时</th><th style="width:52px">订正</th></tr></thead>
+                    <tbody id="ans-body"><tr><td colspan="6" class="hint" style="padding:16px 8px">暂无记录，发一条请求试试</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+      </div>
+      <div>
+        <div class="card">
+          <h2>怎么用 <span class="n">三步</span></h2>
+          <ol class="steps">
+            <li>点「开始答题」，复制接入配置</li>
+            <li>粘到答题客户端的「自定义接口」</li>
+            <li>回到课程页面，答案会自动回来</li>
+          </ol>
+          <div class="row" style="margin-top:14px">
+            <button class="btn primary" id="btn-start2">开始答题</button>
+            <button class="btn ghost" id="btn-goadv">高级设置</button>
+          </div>
+          <p class="hint" style="margin-top:10px">服务在后台运行，关掉这个页面不影响答题。手机接入可在「开始答题」里扫码。</p>
+        </div>
+        <div class="card">
+          <h2>现在用的 <span class="n">自动选择，不用管</span></h2>
+          <div class="field" style="margin:0">
+            <div style="font-size:13px" id="home-model">加载中…</div>
+            <div class="tip" id="home-bank">题库 —</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 高级设置（原 4 个标签页） ============ -->
+  <div id="view-adv" style="display:none">
   <div class="tierbar" id="tierbar">
     <div class="tb-title">运行档位</div>
     <button class="tier" data-tier="speed">⚡ 极速刷题</button>
     <button class="tier on" data-tier="balanced">⚖ 平衡日常</button>
     <button class="tier" data-tier="accurate">🎯 高正确率</button>
-    <div class="tb-meta" id="tier-note">切换档位会一次性写入验证方式、CoT、token 上限与答题间隔</div>
+    <div class="tb-meta" id="tier-note">快一点 / 正常 / 准一点，参数自动配套；想细调看下面各页</div>
     <div class="spacer"></div>
     <div class="tb-kpi"><span>p50</span><b id="k-p50">-</b></div>
     <div class="tb-kpi"><span>p95</span><b id="k-p95">-</b></div>
@@ -327,19 +434,6 @@ a{color:var(--acc);text-decoration:none}
       <div class="card">
         <h2>自检结果 <span class="n" id="diag-sum"></span></h2>
         <div id="diag-list"><div class="hint">正在检测…</div></div>
-      </div>
-
-      <div class="card">
-        <h2>最近请求 <span class="n">最近 120 条</span>
-          <span class="right"><button class="btn ghost" id="btn-clear-ans">清空显示</button></span>
-        </h2>
-        <div class="ans-wrap">
-          <table>
-            <thead><tr><th style="width:64px">时间</th><th>题目</th><th style="width:110px">答案</th>
-            <th style="width:76px">来源</th><th style="width:56px">耗时</th><th style="width:52px">订正</th></tr></thead>
-            <tbody id="ans-body"><tr><td colspan="6" class="hint" style="padding:16px 8px">暂无记录，发一条请求试试</td></tr></tbody>
-          </table>
-        </div>
       </div>
     </div>
 
@@ -514,6 +608,8 @@ a{color:var(--acc);text-decoration:none}
         <label class="switch"><input type="checkbox" id="f-delay"><span class="track"></span>启用节律延时</label>
         <label class="switch"><input type="checkbox" id="f-delaycache"><span class="track"></span>缓存命中时也延时</label>
         <label class="switch"><input type="checkbox" id="f-autobrowser"><span class="track"></span>启动时打开本页面</label>
+        <label class="switch"><input type="checkbox" id="f-autostart"><span class="track"></span>开机自启（关掉窗口也继续在后台答题）</label>
+        <label class="switch"><input type="checkbox" id="f-updatecheck"><span class="track"></span>启动时检查新版本</label>
 
         <div class="field" style="margin-top:14px">
           <label>配置迁移（换电脑用）</label>
@@ -606,9 +702,30 @@ C. 广州
       </div>
     </div>
   </div>
+  </div><!--/#view-adv-->
 </div>
 
-<!-- ============ v1.4 弹层 ============ -->
+<!-- ============ v1.5 弹层 ============ -->
+<div class="modal-mask" id="m-start" style="display:none">
+  <div class="modal" style="max-width:600px">
+    <button class="close" onclick="uiClose('m-start')">✕</button>
+    <h3>开始答题 <span style="font-size:12px;color:var(--dim2)">三步，约 2 分钟</span></h3>
+    <ol class="steps" style="margin:12px 0 14px 18px">
+      <li>复制下面的接入配置</li>
+      <li>粘到答题客户端的「自定义接口」</li>
+      <li>回到课程页面，答案会自动回来</li>
+    </ol>
+    <div class="code" id="start-cfg" style="max-height:260px;overflow:auto">加载中…</div>
+    <div class="row" style="margin-top:12px;flex-wrap:wrap">
+      <button class="btn primary" id="start-copy">复制配置</button>
+      <button class="btn" id="start-qr">📱 手机扫码接入</button>
+      <button class="btn ghost" id="start-adv">⚙ 高级设置</button>
+      <span class="hint" id="start-msg"></span>
+    </div>
+    <p class="hint" style="margin-top:10px">配置里已包含本机地址和访问令牌，直接粘贴即可，不用改任何参数。</p>
+  </div>
+</div>
+
 <div class="modal-mask" id="m-quiz" style="display:none">
   <div class="modal">
     <button class="close" onclick="uiClose('m-quiz')">✕</button>
@@ -1072,6 +1189,7 @@ async function loadConfig(){
   $('f-delay').checked = !!c.human_delay;
   $('f-delaycache').checked = !!c.delay_on_cache;
   $('f-autobrowser').checked = !!c.auto_open_browser;
+  $('f-updatecheck').checked = c.update_check !== false;
   // v1.4 图片预处理
   $('f-imgpre').checked = !!c.preprocess_image;
   $('f-imggray').checked = !!c.image_grayscale;
@@ -1408,7 +1526,8 @@ $('btn-quiz').onclick = openQuiz;
 $('btn-quiz-more').onclick = openQuiz;
 
 /* 局域网二维码 */
-$('btn-lanqr').onclick = async () => {
+$('btn-lanqr').onclick = openQr;
+async function openQr(){
   const st = await api('/api/status');
   const ip = st.lan_ip || '';
   const port = window.__cfg ? window.__cfg.port : 5000;
@@ -1428,7 +1547,7 @@ $('btn-lanqr').onclick = async () => {
     $('qr-box').innerHTML = '<p style="color:#333;padding:16px">' + esc(url) + '</p>';
   }
   $('lan-ip').textContent = '本机局域网 IP：' + ip + (tk && tk.indexOf('*') === -1 ? '（已带令牌）' : tk ? '（令牌已设置，按原样访问）' : '');
-};
+}
 
 /* 配置迁移 */
 $('btn-cfg-export').onclick = async () => {
@@ -1507,11 +1626,127 @@ $('ob-done').onclick = () => {
   uiClose('m-onboard');
 };
 
+/* ---------------- v1.5 首页 ---------------- */
+function uiOpen(id){ const el = $(id); if(el) el.style.display = 'flex'; }
+let toastTimer = null;
+function toast(msg, ms){
+  let t = $('jy-toast');
+  if(!t){ t = document.createElement('div'); t.id = 'jy-toast'; t.className = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.display = 'none'; }, ms || 2600);
+}
+
+function showView(v){
+  const home = v !== 'adv';
+  $('view-home').style.display = home ? '' : 'none';
+  $('view-adv').style.display = home ? 'none' : '';
+  document.querySelectorAll('#navsw .navbtn').forEach(b => {
+    b.classList.toggle('on', b.dataset.view === (home ? 'home' : 'adv'));
+  });
+  window.scrollTo({top: 0, behavior: 'smooth'});
+  localStorage.setItem('jy_view', home ? 'home' : 'adv');
+}
+
+async function loadSummary(){
+  try{
+    const d = await api('/api/summary');
+    $('h-today').textContent = d.answered || 0;
+    $('h-acc').textContent = (d.acc == null) ? '—' : d.acc + '%';
+    $('h-avg').textContent = d.avg_ms ? (d.avg_ms / 1000).toFixed(1) + ' 秒' : '—';
+    const local = d.backend !== 'openai';
+    const m = d.model || '未配置';
+    $('h-sub').textContent = (local ? '本地模型 · ' : '云端模型 · ') + m;
+    $('home-model').textContent = (local ? '本地 · ' : '云端 · ') + m;
+    $('home-bank').textContent = d.bank_count
+      ? `题库已收录 ${d.bank_count} 题，重复的题会直接秒回`
+      : '题库还是空的，答过的题可以一键收录';
+    if(!d.configured){
+      $('h-state').textContent = '还没配置模型';
+      dot($('h-dot'), 'warn');
+      $('h-note').textContent = '点「开始答题」，选一个服务商就能用，不需要显卡。';
+    }else if(d.answered > 0){
+      $('h-state').textContent = '正在答题';
+      dot($('h-dot'), 'busy');
+      $('h-note').textContent = '收到题目会自动作答，不用盯着这个页面。';
+    }else{
+      $('h-state').textContent = '已就绪，等待题目';
+      dot($('h-dot'), 'ok');
+      $('h-note').textContent = '第一次用？点「开始答题」，三步接入，约 2 分钟。';
+    }
+  }catch(e){ /* 静默 */ }
+}
+
+function openStart(){
+  const cfg = $('ocs-cfg').textContent || '';
+  $('start-cfg').textContent = (cfg && cfg !== '加载中…') ? cfg : '配置还在加载，请稍等两秒再点一次';
+  $('start-msg').textContent = '';
+  uiOpen('m-start');
+}
+
+async function checkUpdate(){
+  try{
+    const d = await api('/api/update/check');
+    if(!d.has_update || !d.latest) return;
+    if(localStorage.getItem('jy_skip_ver') === d.latest) return;
+    $('up-text').textContent = `新版本 v${d.latest} 可用（当前 v${d.current}）`;
+    $('up-link').href = d.url || '#';
+    $('update-bar').dataset.ver = d.latest;
+    $('update-bar').style.display = 'flex';
+  }catch(e){ /* 静默 */ }
+}
+function hideUpdate(){
+  const v = $('update-bar').dataset.ver || '';
+  if(v) localStorage.setItem('jy_skip_ver', v);
+  $('update-bar').style.display = 'none';
+}
+
+async function loadAutostart(){
+  try{
+    const d = await api('/api/autostart');
+    $('f-autostart').checked = !!d.enabled;
+  }catch(e){ /* 静默 */ }
+}
+async function toggleAutostart(on){
+  try{
+    const d = await api('/api/autostart', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: on})
+    });
+    toast(d.message || (d.ok ? '已保存' : '设置失败'));
+    if(!d.ok) $('f-autostart').checked = !on;
+  }catch(e){
+    toast('设置失败：' + e.message);
+    $('f-autostart').checked = !on;
+  }
+}
+
 /* ---------------- 启动 ---------------- */
 (async function init(){
   document.querySelectorAll('.tier').forEach(b => {
     b.onclick = () => setTier(b.dataset.tier);
   });
+  // v1.5 首页交互
+  document.querySelectorAll('#navsw .navbtn').forEach(b => {
+    b.onclick = () => showView(b.dataset.view);
+  });
+  $('btn-start').onclick = openStart;
+  $('btn-start2').onclick = openStart;
+  $('btn-quiz-home').onclick = openQuiz;
+  $('btn-goadv').onclick = () => showView('adv');
+  $('start-adv').onclick = () => { uiClose('m-start'); showView('adv'); };
+  $('start-qr').onclick = () => { uiClose('m-start'); openQr(); };
+  $('start-copy').onclick = () => {
+    $('btn-copy').click();
+    $('start-msg').textContent = '已复制，去客户端粘贴吧';
+  };
+  $('btn-diag-home').onclick = () => {
+    runDiag();
+    showView('adv');
+    toast('正在体检，结果就在下面');
+  };
+  $('f-autostart').onchange = () => toggleAutostart($('f-autostart').checked);
   const drop = $('bank-drop'), fi = $('bank-file');
   if(drop && fi){
     drop.onclick = () => fi.click();
@@ -1528,10 +1763,12 @@ $('ob-done').onclick = () => {
     });
   }
   await tick();
-  await Promise.all([runDiag(), loadConfig(), loadBank(), loadTier()]);
+  await Promise.all([runDiag(), loadConfig(), loadBank(), loadTier(), loadSummary(), loadAutostart()]);
   loadCandidates();
+  checkUpdate();
   maybeOnboard();
   setInterval(tick, 1500);
+  setInterval(loadSummary, 8000);
   setInterval(loadBank, 10000);
   setInterval(loadCandidates, 20000);
 })();
