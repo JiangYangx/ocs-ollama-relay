@@ -28,6 +28,16 @@ def fail(msg: str) -> None:
     sys.exit(1)
 
 
+def read_version() -> str:
+    """读仓库根目录 VERSION（唯一版本来源）。"""
+    p = os.path.join(ROOT, "VERSION")
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
 def main() -> None:
     src_py = os.path.join(ROOT, "tray_app.py")
     dep_py = os.path.join(ROOT, "ocs_relay.py")
@@ -49,15 +59,21 @@ def main() -> None:
         pass
 
     # tray_app 与 ocs_relay 都放进 _gen，import ocs_relay 才能命中内嵌版
+    ver = read_version()
     for name, extra in (("tray_app.py", code), ("ocs_relay.py", None)):
         text = extra if extra is not None else open(
             os.path.join(ROOT, name), "r", encoding="utf-8").read()
         if PLACEHOLDER in text:
             text = text.replace(PLACEHOLDER, injected, 1)
+        # 版本号兜底值写进代码：只拷走单个 exe 也能显示正确版本
+        if ver:
+            text = text.replace('VERSION_FALLBACK = "dev"',
+                                f'VERSION_FALLBACK = "{ver}"', 1)
         with open(os.path.join(GEN_DIR, name), "w", encoding="utf-8") as f:
             f.write(text)
 
-    print(f"[1/3] 已内嵌 console.html（{len(raw)} 字节）到 build/_gen/")
+    print(f"[1/3] 已内嵌 console.html（{len(raw)} 字节）到 build/_gen/"
+          + (f"，版本 {ver}" if ver else ""))
 
     spec = os.path.join(ROOT, "ocs_relay_app.spec")
     if not os.path.exists(spec):
@@ -75,6 +91,9 @@ def main() -> None:
     cfg = os.path.join(ROOT, "config.json")
     if os.path.exists(cfg):
         shutil.copy2(cfg, os.path.join(ROOT, "dist", "config.json"))
+    vp = os.path.join(ROOT, "VERSION")
+    if os.path.exists(vp):
+        shutil.copy2(vp, os.path.join(ROOT, "dist", "VERSION"))
 
     exe_name = "JY-Relay.exe" if os.name == "nt" else "JY-Relay"
     out = os.path.join(ROOT, "dist", exe_name)

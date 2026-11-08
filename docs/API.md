@@ -275,6 +275,117 @@ curl -X POST http://127.0.0.1:5000/api/fix \
 
 ---
 
+# v2.0 新增接口
+
+## POST /v1/chat/completions — OpenAI 兼容
+
+任何只认 OpenAI 协议的客户端（ChatBox / LobeChat / 浏览器插件）都能直接接进来。
+
+```bash
+curl -X POST http://127.0.0.1:5000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"单选题：1+1等于几？\nA. 2\nB. 3"}]}'
+```
+
+响应是标准 `chat.completion`，另带非标准 `jy` 扩展字段：
+
+```json
+{
+  "id": "chatcmpl-81d4047381bb1a9d",
+  "object": "chat.completion",
+  "created": 1794151991,
+  "model": "qwen2.5:7b-instruct",
+  "choices": [{"index": 0, "message": {"role": "assistant", "content": "A"},
+               "finish_reason": "stop"}],
+  "usage": {"prompt_tokens": 15, "completion_tokens": 1, "total_tokens": 16},
+  "jy": {"cached": false, "confidence": "high", "ms": 7511.7,
+         "source": "vote", "votes": []}
+}
+```
+
+`content` 的内容由 `response_format` 决定：`text` 返回选项正文，`letter` 返回 `A`，`json` 返回完整结构字符串。
+
+支持多模态 `content` 数组里的 `image_url`（会取出图片走视觉模型）。
+
+## GET /api/history — 历史分页
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `page` | 1 | 页码，从 1 开始 |
+| `limit` | 50 | 每页条数（上限 200） |
+| `q` | — | 关键词，匹配题干 |
+
+```json
+{"items": [{"id": 2, "q": "中国的首都", "a": "北京", "source": "bank",
+            "confidence": "high", "ms": 12, "cached": False}],
+ "page": 1, "pages": 1, "total": 2}
+```
+
+## GET /api/wrong — 错题
+
+`?limit=200`。来自 `quiz` 表里 `correct=0` 的记录，按时间倒序。
+
+```json
+{"count": 3, "items": [{"q": "...", "a": "...", "t": 1794151991}]}
+```
+
+## POST /api/bank/import — 题库导入
+
+两种调用方式：
+
+**multipart 文件**（推荐）
+```bash
+curl -F "file=@bank.csv" http://127.0.0.1:5000/api/bank/import
+```
+CSV 前两列是「题干,答案」，可选第三列「选项」用 `|` 分隔；带表头会自动跳过。
+
+**JSON body**
+```json
+{"items": [
+  {"title": "中国的首都是哪里", "answer": "北京", "options": ["A. 北京", "B. 上海"]}
+]}
+```
+题干字段兼容 `question` / `title` / `q` / `题目`，答案兼容 `answer` / `a` / `答案`，
+选项可以是字符串数组，也可以是 `[{"key":"A","text":"北京"}]` 结构。
+
+响应：`{"ok":true,"added":2,"updated":0,"total":12,"errors":[]}`
+
+## GET|POST /api/accuracy — 准确率档位
+
+一次设定同时改 `tier` + `verify_mode` + `cot_mode` + `self_check`，避免只调一项导致参数互相打架。
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/accuracy \
+  -H "Content-Type: application/json" -d '{"mode":"accurate"}'
+```
+
+| 档位 | tier | verify_mode | cot_mode | self_check | 适合 |
+|---|---|---|---|---|---|
+| `fast` | speed | off | false | false | 客观题海量刷 |
+| `balanced` | balanced | fast | false | true | 日常默认 |
+| `accurate` | accurate | full | true | true | 高分值难题 |
+
+`GET` 返回 `{"mode":"balanced","presets":{...}}`。
+
+## GET /api/update/check · /download · /install
+
+- `check`：查 GitHub 最新 Release，返回 `latest` / `has_update` / `notes` / `has_asset`
+- `download`：挑 Release 里的安装包下载到本地临时目录，返回路径
+- `install`：执行下载好的安装包（Windows）
+
+## 响应新增字段（v2.0）
+
+`/api/qa` 与 `/v1/chat/completions` 的 `jy` 都带：
+
+| 字段 | 取值 | 含义 |
+|---|---|---|
+| `source` | `model` / `vote` / `bank` / `correction` / `rag` / `cache` | 答案来源 |
+| `confidence` | `high` / `medium` / `low` | 置信度（复核一致、投票达标、题库命中 → high） |
+| `votes` | `[{"model":"...","answer":"..."}]` | 投票明细，未投票为空数组 |
+| `response_format` | `text` / `letter` / `json` | 本次生效的返回形态 |
+
+---
+
 ## 错误码约定
 
 | HTTP | 场景 |

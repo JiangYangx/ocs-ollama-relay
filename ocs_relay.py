@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import hashlib
 import io
 import json
@@ -41,6 +42,7 @@ import logging
 import os
 import random
 import re
+import shutil
 import socket
 import sys
 import threading
@@ -81,10 +83,28 @@ except Exception:                                     # pragma: no cover
 # --------------------------------------------------------------------------- #
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
-    APP_VERSION = "1.5.0"
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    APP_VERSION = "1.5.0"
+
+# 版本号唯一来源：仓库根目录的 VERSION 文件。
+# 打包时构建脚本会把下面的 VERSION_FALLBACK 替换成真实版本（exe 里没有 VERSION 文件）。
+VERSION_FALLBACK = "dev"
+
+
+def _load_version() -> str:
+    for _p in (os.path.join(BASE_DIR, "VERSION"),
+               os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")):
+        try:
+            with open(_p, "r", encoding="utf-8") as _f:
+                _v = _f.read().strip()
+            if _v:
+                return _v
+        except Exception:
+            continue
+    return VERSION_FALLBACK
+
+
+APP_VERSION = _load_version()
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 LOG_PATH = os.path.join(BASE_DIR, "relay.log")
@@ -122,7 +142,14 @@ DEFAULT_CONFIG = {
     #    full = 不一致时再用主模型仲裁一次（最慢，正确率最高）
     "verify_mode": "off",             # off / fast / full
     "verify_model": "",               # 复核模型；留空=fallback_model
+    "verify_parallel": True,          # v2.0：复核与主模型并行，云端后端收益明显（本地自动降级）
     "arbitrate_model": "",            # 仲裁模型（full 模式两模型不一致时找它裁决）；留空=不做仲裁
+    # ---- v2.0 多模型投票：answer 由多模型独立作答后统一裁决 ----
+    "vote_models": [],                # 空=不投票；填 2~3 个模型名即开启
+    "vote_min": 2,                    # 几票算一致
+    "bank_priority": True,            # 模型冲突时，题库/相似题命中优先于模型
+    # ---- v2.0 准确度档位：一键封装上面这些开关，高级区仍可单项覆盖 ----
+    "accuracy_mode": "balanced",      # fast | balanced | accurate
     # 4) 提示词预设：default/law/medical/math/engineering，按学科定制要求
     "prompt_preset": "default",
     # 5) CoT：难题先推理再作答（对多选/计算题提升明显，稍慢）
@@ -150,6 +177,8 @@ DEFAULT_CONFIG = {
     # 10) v1.3 持久化与容错
     "cache_sqlite": True,             # 缓存落 SQLite（L2），重启后仍能命中
     "cache_ttl_hours": 168,           # 缓存有效期（小时）
+    "cache_normalize": True,          # v2.0：缓存键归一化（忽略标点/空白/全半角差异）
+    "fast_path_max_len": 80,          # v2.0：题干短于此且为单选时走快路（跳过投票与仲裁）
     "local_fallback": True,           # 云端失败/限流时自动切本地 Ollama
     "local_fallback_url": "http://127.0.0.1:11434",
     "local_fallback_model": "qwen2.5:7b-instruct",
@@ -169,6 +198,12 @@ DEFAULT_CONFIG = {
     "max_concurrency": 1,             # 并发推理数：本地保持 1；云端可 2~4（需重启）
     "cache_size": 1024,               # 内存缓存条数
     "auth_token": "",                 # 访问令牌（非空则所有接口需携带；0.0.0.0 局域网暴露时强烈建议设置）
+    "lan_share": False,               # v2.0：允许监听 0.0.0.0（必须同时设置 auth_token）
+    # ---------------- v2.0 适配层（决定别人的客户端怎么接进来）----------------
+    "api_mode": "auto",               # auto | ocs | openai —— auto 按请求体特征判断
+    "field_map": {},                  # 自定义字段映射，如 {"title":"question","options":"choices"}
+    "response_format": "text",        # text(选项正文) | letter(字母) | json(完整结构)
+    "cors_allow_origin": "",          # 空=不开跨域；浏览器直连时填 *
     "privacy_log": False,             # true=日志里题目打码（公用电脑建议开）
     "verbose": True,
 
@@ -187,6 +222,9 @@ DEFAULT_CONFIG = {
     # ---------------- v1.5 产品化 ----------------
     "update_check": True,             # 启动时检查 GitHub 新版本（失败静默，不影响使用）
     "update_repo": "JiangYangx/ocs-ollama-relay",  # 检查更新的仓库（owner/repo）
+    "update_auto_download": False,    # v2.0：检测到新版时在程序内直接下载安装包
+    # ---------------- v2.0 配置治理 ----------------
+    "config_version": 2,              # 配置结构版本，用于自动迁移
 }
 
 # 允许通过界面修改的字段及其类型（防止误传任意字段写坏配置）
@@ -247,6 +285,21 @@ EDITABLE_FIELDS = {
     "local_fallback": bool,
     "local_fallback_url": str,
     "local_fallback_model": str,
+    # ---- v2.0 ----
+    "verify_parallel": bool,
+    "vote_models": list,
+    "vote_min": int,
+    "bank_priority": bool,
+    "accuracy_mode": str,
+    "cache_normalize": bool,
+    "fast_path_max_len": int,
+    "lan_share": bool,
+    "api_mode": str,
+    "field_map": dict,
+    "response_format": str,
+    "cors_allow_origin": str,
+    "update_auto_download": bool,
+    "config_version": int,
 }
 
 _CFG_LOCK = threading.RLock()
@@ -254,16 +307,67 @@ _CFG_LOCK = threading.RLock()
 # --------------------------------------------------------------------------- #
 # 配置加载 / 保存
 # --------------------------------------------------------------------------- #
+def _migrate_config(cfg: dict, raw: dict | None = None) -> dict:
+    """v2.0：老版本 config.json 自动迁移。
+
+    关键点：版本号必须看「文件里的原值」，不能看合并默认值后的 cfg ——
+    DEFAULT_CONFIG 本身就把 config_version 写成 2，合并后永远是"最新版"。
+
+    规则：只补缺，不改用户已有值；动手前备份为 config.json.bak.v{旧版本}。
+    这样 1.x 用户升级到 2.0 不用手填新增的十几个配置项。
+    """
+    raw = raw or {}
+    try:
+        cur = int(raw.get("config_version") or 1)
+    except Exception:
+        cur = 1
+    try:
+        target = int(DEFAULT_CONFIG.get("config_version") or 2)
+    except Exception:
+        target = 2
+    had_file = os.path.exists(CONFIG_PATH)
+    if cur >= target or not had_file:
+        # 已是新版，或根本没有配置文件（首次运行等用户自己保存）
+        return cfg
+
+    try:
+        shutil.copy2(CONFIG_PATH, f"{CONFIG_PATH}.bak.v{cur}")
+    except Exception as e:
+        print(f"[WARN] 配置备份失败（继续迁移）：{e}")
+
+    added = []
+    for k, v in DEFAULT_CONFIG.items():
+        if k.startswith("_"):
+            continue
+        if k not in raw:
+            cfg[k] = copy.deepcopy(v)
+            raw[k] = copy.deepcopy(v)
+            added.append(k)
+    cfg["config_version"] = target
+    raw["config_version"] = target
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(raw, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[WARN] 配置迁移写回失败（本次仍按新默认值运行）：{e}")
+    if added:
+        head = "、".join(added[:8]) + (" 等" if len(added) > 8 else "")
+        print(f"[INFO] 配置已从 v{cur} 迁移到 v{target}，补上 {len(added)} 项：{head}")
+    return cfg
+
+
 def load_config() -> dict:
     cfg = dict(DEFAULT_CONFIG)
+    raw: dict = {}
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                user_cfg = json.load(f)
-            cfg.update({k: v for k, v in user_cfg.items()
+                raw = json.load(f) or {}
+            cfg.update({k: v for k, v in raw.items()
                         if v is not None and not k.startswith("_")})
         except Exception as e:
             print(f"[WARN] config.json 解析失败，使用默认配置: {e}")
+    cfg = _migrate_config(cfg, raw)
     # 环境变量可覆盖（方便打包后免改文件）
     if os.environ.get("OLLAMA_MODEL"):
         cfg["model"] = os.environ["OLLAMA_MODEL"]
@@ -295,6 +399,26 @@ def save_config(new_values: dict) -> tuple[bool, str]:
                 val = int(float(v))
             elif typ is float:
                 val = float(v)
+            elif typ in (list, dict):
+                # v2.0：vote_models 允许前端输入框直接填 "a, b, c"
+                # field_map 必须是 JSON 对象字符串
+                if isinstance(v, typ):
+                    val = v
+                elif isinstance(v, str):
+                    s = v.strip()
+                    if not s:
+                        val = typ()
+                    elif typ is list and not s.startswith("["):
+                        # 逗号 / 中文逗号 / 换行都能分隔
+                        val = [x.strip() for x in re.split(r"[,，\n]", s) if x.strip()]
+                    else:
+                        val = json.loads(s)
+                else:
+                    raise ValueError("need list/dict")
+                if typ is list:
+                    val = [str(x).strip() for x in val if str(x).strip()]
+                elif not isinstance(val, dict):
+                    raise ValueError("need dict")
             else:
                 val = str(v).strip()
             cleaned[k] = val
@@ -316,6 +440,22 @@ def save_config(new_values: dict) -> tuple[bool, str]:
         errors.append("并发数需在 1~8 之间")
     if cleaned.get("verify_mode") not in (None, "off", "fast", "full"):
         errors.append("verify_mode 只能是 off / fast / full")
+    if cleaned.get("api_mode") not in (None, "auto", "ocs", "openai"):
+        errors.append("api_mode 只能是 auto / ocs / openai")
+    if cleaned.get("response_format") not in (None, "text", "letter", "json"):
+        errors.append("response_format 只能是 text / letter / json")
+    if cleaned.get("accuracy_mode") not in (None, "fast", "balanced", "accurate"):
+        errors.append("accuracy_mode 只能是 fast / balanced / accurate")
+    if "vote_min" in cleaned and not (1 <= int(cleaned["vote_min"]) <= 5):
+        errors.append("vote_min 需在 1~5 之间")
+    if "fast_path_max_len" in cleaned and int(cleaned["fast_path_max_len"]) < 0:
+        errors.append("快路阈值不能为负（0 = 关闭快路）")
+    # 安全阀：没有访问令牌就不允许对外开放，直接回落（与 main() 的双保险）
+    _lan_blocked = False
+    if cleaned.get("lan_share") and not (
+            cleaned.get("auth_token") or CFG.get("auth_token") or "").strip():
+        cleaned["lan_share"] = False
+        _lan_blocked = True
     if cleaned.get("prompt_preset") not in (None, *PROMPT_PRESETS.keys()):
         errors.append("prompt_preset 预设无效")
     # api_key 保护：空值或掩码值（*** 尾号）不覆盖已保存的 key
@@ -353,6 +493,8 @@ def save_config(new_values: dict) -> tuple[bool, str]:
         parts.append(f"端口从 {old_port} 改为 {CFG.get('port')}，需重启生效")
     if "max_concurrency" in cleaned:
         parts.append("并发数需重启生效")
+    if _lan_blocked:
+        parts.append("未设访问令牌，局域网共享已自动关闭（设好令牌再开）")
     msg = "已保存并即时生效" if not parts else "已保存；" + "；".join(parts)
     log.info("配置已更新：%s", ", ".join(f"{k}={v}" for k, v in log_kv.items()))
     return True, msg
@@ -578,18 +720,55 @@ def clean_answer(raw: str) -> str:
 _OPT_LINE = re.compile(r"^\s*([A-Ha-h])\s*[\.．、:：\)）]\s*(.*)$")
 
 
+def _opt_to_line(x) -> str:
+    """
+    v2.0：把单个选项统一转成 "A. 文本" 形式。
+    兼容三种写法：
+        字符串            "A. 北京"
+        dict 带 key/text  {"key": "A", "text": "北京"}
+        dict 无 key       {"text": "北京"}
+    """
+    if isinstance(x, dict):
+        letter = str(
+            x.get("key") or x.get("letter") or x.get("label")
+            or x.get("index") or x.get("id") or ""
+        ).strip()
+        body = str(
+            x.get("text") or x.get("content") or x.get("value")
+            or x.get("title") or x.get("option") or ""
+        ).strip()
+        if not body and not letter:
+            return ""
+        return f"{letter}. {body}" if letter and body else (body or letter)
+    return str(x)
+
+
 def split_options(options_text) -> list[dict]:
     """
     把 OCS 传来的 options 解析成 [{letter, text, raw}, ...]
     OCS 传的是"每行一个选项"的字符串，行内可能自带 "A." 前缀，也可能不带。
-    兼容：字符串 / list / 带 \n 的 JSON 数组字符串。
+    兼容：字符串 / list / 带 \n 的 JSON 数组字符串 / [{"key","text"}] 结构化数组。
     """
     if isinstance(options_text, (list, tuple)):
-        lines = [str(x) for x in options_text]
+        lines = [_opt_to_line(x) for x in options_text]
     else:
         text = str(options_text or "")
         text = text.replace("\\n", "\n").replace("\r", "\n")
-        lines = [ln for ln in text.split("\n")]
+        # v2.0：字符串里塞了 JSON 数组（如 '[{"key":"A","text":"北京"}]'）
+        _t = text.strip()
+        if _t[:1] in "[{" and _t[-1:] in "]}":
+            try:
+                _parsed = json.loads(_t)
+            except Exception:
+                _parsed = None
+            if isinstance(_parsed, (list, tuple)):
+                lines = [_opt_to_line(x) for x in _parsed]
+            elif isinstance(_parsed, dict):
+                lines = [_opt_to_line(_parsed)]
+            else:
+                lines = text.split("\n")
+        else:
+            lines = [ln for ln in text.split("\n")]
 
     out = []
     auto = 0
@@ -1157,6 +1336,10 @@ def append_history(result: dict) -> None:
             "route": result.get("route") or "",
             "model": result.get("model") or "",
             "verify": result.get("verify") or "",
+            "source": result.get("source") or "",
+            "confidence": result.get("confidence") or "",
+            "ms": int(result.get("ms") or 0),
+            "cached": bool(result.get("cached")),
         }
         with _KB_LOCK:
             if STORE is not None:
@@ -1766,6 +1949,50 @@ def _same_answer(a: str, b: str, opts: list[dict]) -> bool:
     return _norm(a) == _norm(b)
 
 
+def _vote_answers(prompt: str, opts: list[dict], models: list[str], deadline: float,
+                  max_tok: int, first_answer: str, first_model: str):
+    """v2.0 多模型投票：主模型答案算第 1 票，其余模型并行补票。
+
+    返回 (votes, winner_answer, agree_count)。
+    并发是为了不让投票把延迟乘上模型个数；票数不够时由调用方决定是否采纳。
+    """
+    votes = []
+    if first_answer:
+        votes.append({"model": first_model, "answer": first_answer})
+    got, lock = {}, threading.Lock()
+
+    def _run(m: str):
+        try:
+            raw, mod, _c = call_model(prompt, deadline=deadline,
+                                      preferred_model=m, max_tokens=max_tok)
+            txt, _form, _ = match_option(raw, opts)
+            if txt:
+                with lock:
+                    got[m] = {"model": mod, "answer": txt}
+        except Exception as e:
+            log.info("投票模型 %s 未出结果：%s", m, e)
+
+    threads = [threading.Thread(target=_run, args=(m,), daemon=True)
+               for m in models if m and m != first_model]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=max(1.0, deadline - time.time()))
+    votes.extend(got.values())
+
+    if not votes:
+        return votes, "", 0
+    tally: dict[str, list[dict]] = {}
+    for v in votes:
+        tally.setdefault(_norm(v["answer"]), []).append(v)
+    best_key, best_n = "", 0
+    for k, vs in tally.items():
+        if len(vs) > best_n:
+            best_key, best_n = k, len(vs)
+    winner = tally[best_key][0]["answer"] if best_key else ""
+    return votes, winner, best_n
+
+
 def answer_question(title: str, options_text, qtype: str = "unknown",
                     images: list[str] | None = None,
                     suggestion: str = "") -> dict:
@@ -1792,12 +2019,15 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
         final, form, note = match_option(bank_ans, opts)
         if not final:                       # 订正答案没匹配上选项时原样给
             final, form, note = bank_ans, "raw", "原样返回"
-        waited = pace_gate(True)
+        # v2.0：命中题库与命中缓存同属"瞬时结果"，共用 delay_on_cache 开关
+        waited = pace_gate(CFG.get("delay_on_cache", True))
         result = {
             "question": title, "answer": final, "raw_answer": bank_ans,
             "options": [o["text"] for o in opts], "letters": [o["letter"] for o in opts],
             "match": form, "note": f"来源：{bank_src}", "model": bank_src,
             "has_images": False, "route": "bank", "cost": 0,
+            "source": "correction" if "订正" in str(bank_src) else "bank",
+            "confidence": "high", "votes": [],
             "pace_wait_ms": round(waited), "total": round(time.time() - total_t0, 2),
             "ms": round((time.time() - total_t0) * 1000, 1),
             "cached": False, "success": bool(final),
@@ -1817,13 +2047,14 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
         except Exception as e:
             log.debug("RAG 跳过：%s", e)
     if rag_hit:
-        waited = pace_gate(True)
+        waited = pace_gate(CFG.get("delay_on_cache", True))
         result = {
             "question": title, "answer": rag_hit["answer"],
             "raw_answer": rag_hit["raw"], "options": [o["text"] for o in opts],
             "letters": [o["letter"] for o in opts], "match": rag_hit["form"],
             "note": f"相似题命中 {rag_hit['score']:.2f}：{rag_hit['note']}",
             "model": "rag", "has_images": False, "route": "rag", "cost": 0,
+            "source": "rag", "confidence": "medium", "votes": [],
             "pace_wait_ms": round(waited),
             "total": round(time.time() - total_t0, 2),
             "ms": round((time.time() - total_t0) * 1000, 1),
@@ -1834,8 +2065,14 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
         _record_answer(result, cached=False)
         return result
 
-    flat_title = re.sub(r"\s+", "", title)
-    flat_opts = "|".join(o["text"] for o in opts)
+    # v2.0：缓存键归一化（去标点/空白/全半角差异、统一小写）。
+    # 同一道题被网页写成「1、下列…」和「1. 下列…」时也能命中，少调一次模型。
+    if CFG.get("cache_normalize", True):
+        flat_title = _norm(title)
+        flat_opts = "|".join(_norm(o["text"]) for o in opts)
+    else:
+        flat_title = re.sub(r"\s+", "", title)
+        flat_opts = "|".join(o["text"] for o in opts)
     # 图片参与缓存 key（同一题干不同图可能是不同题），用长度+摘要避免 key 过长；
     # 后端/模型也计入（#3），换模型后不会被旧缓存骗到
     img_sig = ""
@@ -1914,6 +2151,39 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
                                       and is_code_question(title, options_text))
                       else "text" if not images else "image-fallback")
         max_tok = int(CFG.get("cloud_max_tokens", 512))
+
+        # ---- v2.0：快路判定 ----
+        # 题干短 + 单选 → 只跑主模型（和已配置的复核），不投票不仲裁，先把延迟压下来
+        try:
+            _fpl = int(CFG.get("fast_path_max_len", 80) or 0)
+        except Exception:
+            _fpl = 80
+        fast_path = bool(_fpl) and not images and str(qtype) in ("single", "unknown") \
+            and len(title) <= _fpl
+
+        # ---- v2.0 并行复核：主模型与复核模型同时开跑，省掉串行的第二次调用 ----
+        _vmode = (CFG.get("verify_mode") or "off").lower()
+        _vmodel = (CFG.get("verify_model") or CFG.get("fallback_model")
+                   or CFG.get("model") or "")
+        _vbox, _vth = {}, None
+        # 本地 Ollama 单卡下两模型并行会互相抢显存/换模型，默认不并行
+        _parallel_ok = bool(CFG.get("verify_parallel", True)) and \
+            (CFG.get("backend") or "ollama").lower() != "ollama"
+        if (_parallel_ok and _vmode in ("fast", "full")
+                and _vmodel and _vmodel != route_model and opts and not images):
+
+            def _verify_worker(_p=prompt, _m=_vmodel):
+                try:
+                    _r, _mod, _c = call_model(_p, deadline=total_t0 + budget,
+                                              preferred_model=_m, max_tokens=max_tok)
+                    _vbox.update({"raw": _r, "model": _mod, "cost": _c})
+                except Exception as _e:
+                    _vbox["err"] = str(_e)
+                    log.debug("并行复核失败（忽略）：%s", _e)
+
+            _vth = threading.Thread(target=_verify_worker, daemon=True)
+            _vth.start()
+
         raw_ans, model, cost = call_model(
             prompt, deadline=total_t0 + budget,
             images=images, preferred_model=route_model, max_tokens=max_tok,
@@ -1951,6 +2221,33 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
                 log.debug("自检异常（忽略）：%s", e)
 
         final, form, note = match_option(raw_ans, opts)
+
+        # ---- v2.0 多模型投票：票数够就覆盖主模型答案 ----
+        votes: list[dict] = []
+        _vote_overrode = False      # 是否真的改写了主模型答案
+        _vote_agree = 0             # 最高票数
+        _vote_need = 0              # 达标票数要求
+        _vote_models = [str(m).strip() for m in (CFG.get("vote_models") or [])
+                        if str(m).strip()]
+        if _vote_models and opts and not images and not fast_path and final:
+            try:
+                votes, _winner, _vote_agree = _vote_answers(
+                    prompt, opts, _vote_models, total_t0 + budget, max_tok, final, model)
+                try:
+                    _vote_need = max(2, int(CFG.get("vote_min", 2) or 2))
+                except Exception:
+                    _vote_need = 2
+                if _winner and _vote_agree >= _vote_need and _norm(_winner) != _norm(final):
+                    final = _winner
+                    form = "vote-text"
+                    _vote_overrode = True
+                    note = (note + "；" if note else "") + \
+                        f"{len(votes)} 模型投票，{_vote_agree} 票一致（覆盖主模型答案）"
+                elif votes:
+                    note = (note + "；" if note else "") + \
+                        f"{len(votes)} 模型投票，最高 {_vote_agree} 票（未达 {_vote_need} 票，保留主模型答案）"
+            except Exception as e:
+                log.info("投票流程异常（忽略）：%s", e)
         if check_note:
             note = (note + "；" if note else "") + check_note
         # 路由模型没能出答案时，明确提示实际兜底情况（#5）
@@ -1964,13 +2261,25 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
             vmodel = (CFG.get("verify_model") or CFG.get("fallback_model")
                       or CFG.get("model") or "")
             remain = total_t0 + budget - time.time()
-            if vmodel and vmodel != model and remain > 12:
+            # 并行复核时线程早已在跑，无需再看 remain 门槛
+            if vmodel and vmodel != model and (remain > 12 or _vth is not None):
                 try:
-                    raw2, m2, c2 = call_model(
-                        prompt, deadline=total_t0 + budget,
-                        preferred_model=vmodel)
+                    if _vth is not None:
+                        _vth.join(timeout=max(0.2, total_t0 + budget - time.time()))
+                        raw2 = _vbox.get("raw") or ""
+                        m2 = _vbox.get("model") or vmodel
+                        c2 = _vbox.get("cost") or 0
+                        if not raw2:
+                            raise RuntimeError(_vbox.get("err") or "复核未在预算内返回")
+                    else:
+                        raw2, m2, c2 = call_model(
+                            prompt, deadline=total_t0 + budget,
+                            preferred_model=vmodel)
                     final2, _, _ = match_option(raw2, opts)
-                    if _same_answer(final, final2, opts):
+                    if m2 == model:
+                        # 主模型走了兜底，和复核模型变成同一个，比对没有意义
+                        log.debug("复核模型与主模型相同（%s），跳过比对", m2)
+                    elif _same_answer(final, final2, opts):
                         verify = "agree"
                         note = (note + "；" if note else "") + "双模型交叉验证一致（高置信）"
                     else:
@@ -2029,6 +2338,15 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
             "cached": False,
             "verify": verify,
             "success": bool(final),
+            # v2.0：来源与置信度（前端据此打徽章，客户端也能拿到）
+            # 投票"达标"= 参与模型 >=2 且最高票 >= vote_min，无论是否覆盖主模型
+            "source": "vote" if (len(votes) > 1 and _vote_overrode) else "model",
+            "confidence": (
+                "high" if (verify == "agree" or _vote_overrode
+                           or (len(votes) > 1 and _vote_agree >= _vote_need))
+                else "low" if verify == "conflict"
+                else "medium"),
+            "votes": votes,
         }
         if final:
             CACHE.set(cache_key, result)
@@ -2092,12 +2410,51 @@ def check_auth():
     return None
 
 
+def _field_map() -> dict:
+    fm = CFG.get("field_map") or {}
+    return fm if isinstance(fm, dict) else {}
+
+
+def _map_fields(data: dict) -> dict:
+    """v2.0 适配层：按 field_map 把外部字段名映射成内部字段名。
+    例：{"title": "question", "options": "choices"} —— 别人的客户端不用改。"""
+    fm = _field_map()
+    if not fm or not isinstance(data, dict):
+        return data
+    out = dict(data)
+    for internal, external in fm.items():
+        if not internal or not external:
+            continue
+        if external in data and internal not in out:
+            out[internal] = data[external]
+    return out
+
+
+def _openai_messages_to_text(messages) -> str:
+    """把 OpenAI messages 数组压成一段题干文本。"""
+    parts = []
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        role = str(m.get("role") or "user")
+        c = m.get("content")
+        if isinstance(c, list):
+            txt = "".join(str(x.get("text") or "") for x in c if isinstance(x, dict))
+        else:
+            txt = str(c or "")
+        txt = txt.strip()
+        if txt:
+            parts.append(txt if role == "user" else f"[{role}] {txt}")
+    return "\n".join(parts)
+
+
 def _parse_request() -> tuple[str, str, str, list[str], str]:
     """
     从 GET query / POST json / POST form 中提取题目信息。
     返回 (title, options, type, images, suggestion)。
     images: OCS 5.x 图片题优化字段（base64 或 data URL 数组，用 handler 解析器传入）。
     suggestion: OCS 附带的题目文字提示（suggestion_title / suggestion_options 拼接）。
+    v2.0：支持 OpenAI messages 风格 + field_map 字段映射。
     """
     data = {}
     if request.method == "POST":
@@ -2107,10 +2464,19 @@ def _parse_request() -> tuple[str, str, str, list[str], str]:
     if not data:
         data = request.args.to_dict()
 
+    # ---- v2.0：OpenAI 风格请求（{"messages":[...]}） ----
+    if isinstance(data, dict) and data.get("messages"):
+        text = _openai_messages_to_text(data.get("messages"))
+        if text:
+            return text.strip(), "", "unknown", [], ""
+
+    data = _map_fields(data)
+
     title = data.get("title") or data.get("question") or data.get("q") or ""
     options = data.get("options") or data.get("option") or ""
     if isinstance(options, (list, tuple)):
-        options = "\n".join(str(x) for x in options)
+        options = "\n".join(_opt_to_line(x) for x in options)
+        options = "\n".join(x for x in options.split("\n") if x.strip())
     qtype = data.get("type") or data.get("qtype") or "unknown"
 
     # 图片题：OCS 通过 {"handler": "return (env) => env.images"} 传入的 base64 数组
@@ -2131,6 +2497,129 @@ def _parse_request() -> tuple[str, str, str, list[str], str]:
     return str(title).strip(), str(options), str(qtype), images, suggestion
 
 
+# --------------------------------------------------------------------------- #
+# v2.0 适配层：CORS / 返回形态 / OpenAI 兼容端点
+# --------------------------------------------------------------------------- #
+def _cors_origin() -> str:
+    return str(CFG.get("cors_allow_origin") or "").strip()
+
+
+@app.after_request
+def _apply_cors(resp):
+    origin = _cors_origin()
+    if origin:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Relay-Token, Authorization"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return resp
+
+
+def _answer_letters(answer: str, opts: list[dict]) -> str:
+    """把答案正文反查成字母（多选拼成 "AC"）。找不到就返回空串。"""
+    if not answer or not opts:
+        return ""
+    picked = []
+    for piece in str(answer).split("\n"):
+        t = _norm(piece)
+        if not t:
+            continue
+        for o in opts:
+            if _norm(o["text"]) == t:
+                picked.append(o["letter"])
+                break
+    return "".join(sorted(set(picked)))
+
+
+def _apply_response_format(res: dict, fmt: str, opts: list[dict] | None = None) -> dict:
+    """按 response_format 调整 answer 字段：text=正文 / letter=字母 / json=保持原样。"""
+    fmt = (fmt or "text").lower()
+    if fmt not in ("text", "letter", "json"):
+        fmt = "text"
+    out = dict(res)
+    out["response_format"] = fmt
+    if fmt == "letter":
+        letters = _answer_letters(res.get("answer") or "", opts or [])
+        if letters:
+            out["answer"] = letters
+    return out
+
+
+def _extract_openai_images(messages) -> list[str]:
+    """从 OpenAI 多模态 content（image_url）里取出图片，转成上游能吃的形式。"""
+    imgs = []
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        c = m.get("content")
+        if not isinstance(c, list):
+            continue
+        for part in c:
+            if not isinstance(part, dict) or part.get("type") != "image_url":
+                continue
+            u = part.get("image_url") or {}
+            url = u.get("url") if isinstance(u, dict) else str(u)
+            if url:
+                imgs.append(str(url))
+    return imgs[:8]
+
+
+@app.route("/v1/chat/completions", methods=["POST", "OPTIONS"])
+def api_openai_chat():
+    """v2.0：OpenAI 兼容端点。任何只认 chat/completions 的客户端都能接进来。"""
+    if request.method == "OPTIONS":
+        return "", 204
+    data = request.get_json(silent=True) or {}
+    messages = data.get("messages") or []
+    text = _openai_messages_to_text(messages)
+    if not text:
+        return jsonify({"error": {"message": "messages 不能为空",
+                                  "type": "invalid_request_error"}}), 400
+    imgs = _extract_openai_images(messages)
+    try:
+        res = answer_question(text, "", "unknown", imgs, "")
+    except Exception as e:
+        log.exception("OpenAI 端点处理异常")
+        res = {"answer": "", "success": False, "hint": _fail_hint(str(e))}
+    content = res.get("answer") or res.get("raw_answer") or ""
+    if not content and res.get("hint"):
+        content = res["hint"]
+    body = {
+        "id": "chatcmpl-" + hashlib.md5(f"{time.time()}".encode()).hexdigest()[:16],
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": CFG.get("model") or "jy-relay",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": content},
+            "finish_reason": "stop",
+        }],
+        "usage": {
+            "prompt_tokens": max(1, len(text) // 2),
+            "completion_tokens": max(1, len(content) // 2),
+            "total_tokens": max(2, (len(text) + len(content)) // 2),
+        },
+        # 非标准扩展字段：客户端忽略即可
+        "jy": {
+            "source": res.get("source") or res.get("route") or "",
+            "confidence": res.get("confidence") or "",
+            "cached": bool(res.get("cached")),
+            "ms": res.get("ms"),
+            "votes": res.get("votes") or [],
+        },
+    }
+    return jsonify(body)
+
+
+def _req_format() -> str:
+    """本次请求希望的返回形态：query.format > body.response_format > 全局配置。"""
+    try:
+        d = request.get_json(silent=True) or {}
+    except Exception:
+        d = {}
+    return str(request.args.get("format") or d.get("response_format")
+               or CFG.get("response_format") or "text").lower()
+
+
 def _handle():
     title, options, qtype, images, suggestion = _parse_request()
     if not title and not images:
@@ -2147,6 +2636,8 @@ def _handle():
         res = answer_question(title, options, qtype, images, suggestion)
         if isinstance(res, dict) and not res.get("success", True) and not res.get("hint"):
             res["hint"] = _fail_hint(res.get("error", ""))
+        if isinstance(res, dict) and res.get("success", True):
+            res = _apply_response_format(res, _req_format(), split_options(options))
         return jsonify(res)
     except Exception as e:
         log.exception("处理异常")
@@ -2406,17 +2897,41 @@ def api_export_diagnose():
 
 @app.route("/api/history", methods=["GET"])
 def api_history():
-    """答题流（控制台总览用），带订正入口所需的信息。"""
+    """答题历史：支持 page/limit/q 分页搜索（v2.0）。"""
+    if STORE is None:
+        return jsonify({"items": [], "total": 0})
     try:
         limit = int(request.args.get("limit", 50))
     except Exception:
         limit = 50
-    if STORE is None:
-        return jsonify({"items": []})
     try:
-        return jsonify({"items": STORE.history_recent(limit)})
+        page = max(1, int(request.args.get("page", 1)))
+    except Exception:
+        page = 1
+    keyword = request.args.get("q") or ""
+    try:
+        items, total = STORE.history_page(limit=limit, offset=(page - 1) * limit,
+                                          keyword=keyword)
+        return jsonify({"items": items, "total": total, "page": page,
+                        "pages": max(1, (total + limit - 1) // limit)})
     except Exception as e:
-        return jsonify({"items": [], "error": str(e)})
+        return jsonify({"items": [], "total": 0, "error": str(e)})
+
+
+@app.route("/api/wrong", methods=["GET"])
+def api_wrong():
+    """错题本：被标记答错的题（v2.0）。"""
+    if STORE is None:
+        return jsonify({"items": [], "count": 0})
+    try:
+        limit = int(request.args.get("limit", 100))
+    except Exception:
+        limit = 100
+    try:
+        items = STORE.wrong_list(limit)
+        return jsonify({"items": items, "count": len(items)})
+    except Exception as e:
+        return jsonify({"items": [], "count": 0, "error": str(e)})
 
 
 # ---------------- v1.4：候选入库 / 抽样核对 / 答错标记 ----------------
@@ -2570,6 +3085,23 @@ def _ver_tuple(v: str) -> tuple:
     return tuple(int(x) for x in nums[:3]) if nums else (0,)
 
 
+def _pick_asset(assets: list) -> str:
+    """从 Release 资产里挑一个最合适的下载地址：优先安装包，其次单个 exe。"""
+    if not assets:
+        return ""
+    picked = None
+    for a in assets:
+        name = str(a.get("name") or "").lower()
+        url = str(a.get("browser_download_url") or "")
+        if not url:
+            continue
+        if "setup" in name and name.endswith(".exe"):
+            return url
+        if name.endswith(".exe") and picked is None:
+            picked = url
+    return picked or ""
+
+
 def _check_update(force: bool = False) -> dict:
     """查 GitHub 最新 Release。离线/限流/仓库不存在都静默失败，不影响使用。"""
     now = time.time()
@@ -2603,10 +3135,34 @@ def _check_update(force: bool = False) -> dict:
             "has_update": has,
             "url": j.get("html_url") or f"https://github.com/{repo}/releases",
             "notes": (j.get("body") or "")[:2000],
+            "asset_url": _pick_asset(j.get("assets") or []),
         })
     except Exception as e:
         _UPDATE_STATE.update({"error": f"检查更新失败：{e.__class__.__name__}"})
     return dict(_UPDATE_STATE)
+
+
+@app.route("/api/accuracy", methods=["GET", "POST"])
+def api_accuracy():
+    """v2.0：一个档位封装 tier/verify/cot/self_check，避免用户被 5 个开关绕晕。"""
+    presets = {
+        "fast": {"tier": "speed", "verify_mode": "off", "cot_mode": False,
+                 "auto_cot": False, "self_check": False, "accuracy_mode": "fast"},
+        "balanced": {"tier": "balanced", "verify_mode": "fast", "cot_mode": False,
+                     "auto_cot": True, "self_check": True, "accuracy_mode": "balanced"},
+        "accurate": {"tier": "accurate", "verify_mode": "full", "cot_mode": True,
+                     "auto_cot": True, "self_check": True, "accuracy_mode": "accurate"},
+    }
+    if request.method == "GET":
+        cur = str(CFG.get("accuracy_mode") or "balanced")
+        return jsonify({"mode": cur, "presets": {k: v for k, v in presets.items()}})
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get("mode") or "").strip().lower()
+    if mode not in presets:
+        return jsonify({"ok": False, "message": "mode 只能是 fast / balanced / accurate"}), 400
+    ok, msg = save_config(presets[mode])
+    return jsonify({"ok": ok, "message": msg or f"已切换到「{mode}」档",
+                    "applied": presets[mode]})
 
 
 @app.route("/api/update/check", methods=["GET"])
@@ -2620,7 +3176,54 @@ def api_update_check():
         "url": st.get("url") or "",
         "notes": st.get("notes") or "",
         "error": st.get("error") or "",
+        "has_asset": bool(st.get("asset_url")),
     })
+
+
+@app.route("/api/update/download", methods=["POST", "GET"])
+def api_update_download():
+    """v2.0：在程序内把新版安装包下到本地，不用跳浏览器。"""
+    st = _check_update(force=False)
+    url = st.get("asset_url") or ""
+    if not url:
+        return jsonify({"ok": False, "message": "这个版本没有可下载的安装包"}), 400
+    name = url.rsplit("/", 1)[-1] or "jy-update.exe"
+    out_dir = os.path.join(BASE_DIR, "updates")
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except Exception as e:
+        return jsonify({"ok": False, "message": f"无法创建目录：{e}"}), 500
+    out = os.path.join(out_dir, name)
+    try:
+        with requests.get(url, stream=True, timeout=30) as r:
+            r.raise_for_status()
+            total = int(r.headers.get("Content-Length") or 0)
+            with open(out, "wb") as f:
+                for chunk in r.iter_content(256 * 1024):
+                    if chunk:
+                        f.write(chunk)
+        size = os.path.getsize(out)
+        return jsonify({"ok": True, "path": out, "size": size,
+                        "expected": total,
+                        "message": f"已下载到 {out}（{size / 1024 / 1024:.1f} MB）"})
+    except Exception as e:
+        return jsonify({"ok": False, "message": f"下载失败：{e}"}), 500
+
+
+@app.route("/api/update/install", methods=["POST"])
+def api_update_install():
+    """v2.0：启动刚下好的安装包（仅 Windows，且必须由用户在上一步确认）。"""
+    data = request.get_json(silent=True) or {}
+    path = str(data.get("path") or "").strip()
+    if not path or not os.path.isfile(path):
+        return jsonify({"ok": False, "message": "找不到安装包文件"}), 400
+    if not path.lower().endswith(".exe"):
+        return jsonify({"ok": False, "message": "只支持启动 exe"}), 400
+    try:
+        os.startfile(path)      # noqa: S606 —— 只启动用户刚下载的安装包
+        return jsonify({"ok": True, "message": "安装程序已启动，按提示完成即可"})
+    except Exception as e:
+        return jsonify({"ok": False, "message": f"启动失败：{e}"}), 500
 
 
 def _autostart_command() -> str:
@@ -2822,6 +3425,88 @@ def api_bank_import():
         "errors": errors[:10], "total": len(BANK),
         "message": f"导入完成：新增 {added} 条，更新 {updated} 条"
                    + (f"，{len(errors)} 条格式有误被跳过" if errors else ""),
+    })
+
+
+@app.route("/api/bank/import", methods=["POST"])
+def api_bank_import_file():
+    """v2.0 一键导入：支持 multipart 文件（CSV/JSON/TXT）或 JSON body。
+
+    CSV：前两列 题干,答案（可选第三列 选项，用 | 分隔），带表头会自动识别跳过
+    JSON：[{"question":"...","answer":"...","options":["A. x"]}] 或 {"items":[...]}
+    TXT：直接按 import_bank 的文本格式
+    """
+    raw = ""
+    fname = ""
+    if "file" in request.files:
+        f = request.files["file"]
+        fname = f.filename or ""
+        raw = f.read().decode("utf-8-sig", "replace")
+    else:
+        data = request.get_json(silent=True) or {}
+        if isinstance(data, dict) and data.get("items"):
+            try:
+                _lines = []
+                for it in data["items"]:
+                    if not isinstance(it, dict):
+                        continue
+                    # 题干字段名兼容：question / title / q / 题目
+                    _q = str(it.get("question") or it.get("title")
+                             or it.get("q") or it.get("题目") or "").strip()
+                    # 答案字段名兼容：answer / a / 答案
+                    _a = str(it.get("answer") or it.get("a")
+                             or it.get("答案") or "").strip()
+                    if not _q or not _a:
+                        continue
+                    _o = it.get("options") or it.get("choices") or []
+                    if isinstance(_o, str):
+                        _o = [x for x in re.split(r"[\n|]", _o)]
+                    _o = [_opt_to_line(x).replace("|", "/")
+                          for x in _o if str(x).strip()]
+                    _lines.append("|".join([_q.replace("|", "/")] + _o + [f"答案：{_a}"]))
+                text = "\n".join(_lines)
+                added, updated, errors = import_bank(text)
+                _rag_rebuild_async()
+                return jsonify({"ok": True, "added": added, "updated": updated,
+                                "errors": errors[:10], "total": len(BANK),
+                                "message": f"导入完成：新增 {added}，更新 {updated}"})
+            except Exception as e:
+                return jsonify({"ok": False, "message": str(e)}), 400
+        raw = str(data.get("text") or "")
+
+    if not raw.strip():
+        return jsonify({"ok": False, "message": "没有内容可导入"}), 400
+
+    lower = (fname or "").lower()
+    is_csv = lower.endswith(".csv") or (not lower and "," in raw.split("\n", 1)[0])
+    if is_csv:
+        import csv as _csv
+        import io as _io
+        rows = list(_csv.reader(_io.StringIO(raw)))
+        lines, errors = [], []
+        for i, row in enumerate(rows):
+            row = [c.strip() for c in row if str(c).strip()]
+            if len(row) < 2:
+                continue
+            q, a = row[0], row[1]
+            # 跳过表头
+            if i == 0 and q.lower() in ("question", "题干", "题目"):
+                continue
+            opts = [o.strip() for o in (row[2].split("|") if len(row) > 2 else []) if o.strip()]
+            # 转成 import_bank 认识的单行格式：题干|选项1|选项2|答案：X
+            parts = [q] + opts + [f"答案：{a}"]
+            lines.append("|".join(parts))
+        text = "\n".join(lines)
+    else:
+        text = raw
+
+    added, updated, errors = import_bank(text)
+    _rag_rebuild_async()
+    return jsonify({
+        "ok": True, "added": added, "updated": updated,
+        "errors": errors[:10], "total": len(BANK),
+        "message": f"导入完成：新增 {added} 条，更新 {updated} 条"
+                   + (f"，{len(errors)} 条被跳过" if errors else ""),
     })
 
 
@@ -3343,6 +4028,16 @@ def main():
         CFG["model"] = args.model
     if args.port:
         CFG["port"] = args.port
+
+    # ---- v2.0 安全阀：局域网共享必须带令牌 ----
+    if CFG.get("lan_share") and not (CFG.get("auth_token") or "").strip():
+        log.warning("已开启局域网共享（lan_share）但没设访问令牌，任何人都能用你的服务。"
+                    "为避免裸奔，本次只监听 127.0.0.1；请先在设置里设一个 auth_token。")
+        args.host = "127.0.0.1"
+    elif CFG.get("lan_share") and str(args.host) == "127.0.0.1":
+        args.host = "0.0.0.0"
+    if str(args.host) not in ("127.0.0.1", "localhost") and not (CFG.get("auth_token") or "").strip():
+        log.warning("正在对局域网开放且没有令牌，建议设置 auth_token")
 
     model_line = str(CFG.get("model"))
     fb_line = str(CFG.get("fallback_model") or "无")

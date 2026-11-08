@@ -12,6 +12,13 @@ rem 安全：dist\config.json 可能被本机运行中的程序写入真实 api_
 rem 打包前一律用仓库里的干净模板覆盖，避免把密钥发给别人。
 echo       重置 dist\config.json 为默认模板 ...
 copy /y config.json dist\config.json >nul
+rem 版本号唯一来源：仓库根目录 VERSION（保证 exe/安装包/tag 三处一致）
+set /p VER=<VERSION
+if "%VER%"=="" (
+  echo [ERROR] 读不到 VERSION 文件
+  exit /b 1
+)
+echo       版本号：%VER%
 rem Inno Setup 可能装在 系统级(Program Files) 或 仅当前用户(LocalAppData)
 set ISCC="%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
 if not exist %ISCC% set ISCC="%ProgramFiles%\Inno Setup 6\ISCC.exe"
@@ -21,7 +28,7 @@ if not exist %ISCC% (
   echo        本次的窗口版 exe 已在 dist\JY-Relay.exe，可直接分发
   exit /b 0
 )
-%ISCC% installer.iss || goto :err
+%ISCC% /DMyAppVersion=%VER% installer.iss || goto :err
 
 echo.
 echo [OK] 安装包已生成：dist\JY-Relay-Setup-*.exe

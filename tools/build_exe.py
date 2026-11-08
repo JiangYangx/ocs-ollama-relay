@@ -33,6 +33,16 @@ def fail(msg: str) -> None:
     sys.exit(1)
 
 
+def read_version() -> str:
+    """读仓库根目录 VERSION（唯一版本来源）。"""
+    p = os.path.join(ROOT, "VERSION")
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
 def main() -> None:
     src_py = os.path.join(ROOT, "ocs_relay.py")
     src_html = os.path.join(ROOT, "console.html")
@@ -51,6 +61,15 @@ def main() -> None:
     if PLACEHOLDER not in code:
         fail(f"ocs_relay.py 里找不到占位符 {PLACEHOLDER!r}，请检查文件是否被改动")
     code = code.replace(PLACEHOLDER, injected, 1)
+
+    # 版本号唯一来源：仓库根目录 VERSION。
+    # 除了随 exe 一起放一份到 dist/，还把兜底值写死进代码，
+    # 这样用户只拷走单个 exe（没有 VERSION 文件）也能显示正确版本。
+    ver = read_version()
+    if ver:
+        code = code.replace('VERSION_FALLBACK = "dev"',
+                            f'VERSION_FALLBACK = "{ver}"', 1)
+        print(f"    版本号：{ver}")
 
     gen_py = os.path.join(GEN_DIR, "ocs_relay.py")
     with open(gen_py, "w", encoding="utf-8") as f:
@@ -74,6 +93,9 @@ def main() -> None:
     cfg = os.path.join(ROOT, "config.json")
     if os.path.exists(cfg):
         shutil.copy2(cfg, os.path.join(ROOT, "dist", "config.json"))
+    vp = os.path.join(ROOT, "VERSION")
+    if os.path.exists(vp):
+        shutil.copy2(vp, os.path.join(ROOT, "dist", "VERSION"))
 
     exe_name = "JY-Relay.exe" if os.name == "nt" else "JY-Relay"
     out = os.path.join(ROOT, "dist", exe_name)

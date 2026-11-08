@@ -74,10 +74,17 @@ class Store:
                 "PRAGMA temp_store=MEMORY;"
             )
             self.db.executescript(SCHEMA)
-            # 旧库迁移：history 补 status 列
+            # 旧库迁移：history 补列（v2.0 增加来源/置信度/耗时）
             cols = [r["name"] for r in self.db.execute("PRAGMA table_info(history)")]
-            if "status" not in cols:
-                self.db.execute("ALTER TABLE history ADD COLUMN status TEXT DEFAULT ''")
+            for _name, _ddl in (
+                ("status", "TEXT DEFAULT ''"),
+                ("source", "TEXT DEFAULT ''"),
+                ("confidence", "TEXT DEFAULT ''"),
+                ("ms", "INTEGER DEFAULT 0"),
+                ("cached", "INTEGER DEFAULT 0"),
+            ):
+                if _name not in cols:
+                    self.db.execute(f"ALTER TABLE history ADD COLUMN {_name} {_ddl}")
             self.db.commit()
         self.is_new = first
 
@@ -256,15 +263,43 @@ class Store:
     # ---------------- 历史 ----------------
     def history_add(self, rec: dict):
         cur = self._exec(
-            "INSERT INTO history(ts,question,options,answer,route,model,verify,cost,verified) "
-            "VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO history(ts,question,options,answer,route,model,verify,cost,verified,"
+            "source,confidence,ms,cached) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (rec.get("t") or time.time(), rec.get("q", ""),
              json.dumps(rec.get("opts") or [], ensure_ascii=False),
              rec.get("a", ""), rec.get("route", ""), rec.get("model", ""),
              rec.get("verify", ""), float(rec.get("cost") or 0),
-             1 if rec.get("verified") else 0),
+             1 if rec.get("verified") else 0,
+             rec.get("source", ""), rec.get("confidence", ""),
+             int(rec.get("ms") or 0), 1 if rec.get("cached") else 0),
         )
         return cur.lastrowid
+
+    # ---------------- v2.0：分页 / 搜索 / 错题本 ----------------
+    def history_page(self, limit: int = 50, offset: int = 0, keyword: str = ""):
+        """分页 + 关键词搜索，返回 (items, total)。"""
+        limit = max(1, min(int(limit or 50), 500))
+        offset = max(0, int(offset or 0))
+        kw = (keyword or "").strip()
+        if kw:
+            like = f"%{kw}%"
+            rows = self._query(
+                "SELECT * FROM history WHERE question LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                (like, limit, offset))
+            cnt = self._query("SELECT COUNT(*) c FROM history WHERE question LIKE ?", (like,))
+        else:
+            rows = self._query(
+                "SELECT * FROM history ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset))
+            cnt = self._query("SELECT COUNT(*) c FROM history")
+        return [self._row_to_hist(r) for r in rows], (cnt[0]["c"] if cnt else 0)
+
+    def wrong_list(self, limit: int = 100):
+        """错题本：被标记答错（quiz.correct=0）的题，按最近标记排序。"""
+        rows = self._query(
+            "SELECT h.* FROM history h JOIN quiz q ON q.hist_id = h.id "
+            "WHERE q.correct = 0 GROUP BY h.id ORDER BY MAX(q.ts) DESC LIMIT ?",
+            (max(1, min(int(limit or 100), 500)),))
+        return [self._row_to_hist(r) for r in rows]
 
     def history_recent(self, limit: int = 200) -> list:
         rows = self._query("SELECT * FROM history ORDER BY id DESC LIMIT ?", (limit,))
@@ -279,9 +314,15 @@ class Store:
             opts = json.loads(r["options"] or "[]")
         except Exception:
             opts = []
+        keys = r.keys()
         return {"id": r["id"], "t": r["ts"], "q": r["question"], "opts": opts,
                 "a": r["answer"], "route": r["route"], "model": r["model"],
-                "verify": r["verify"], "cost": r["cost"], "status": r["status"] if "status" in r.keys() else ""}
+                "verify": r["verify"], "cost": r["cost"],
+                "status": r["status"] if "status" in keys else "",
+                "source": r["source"] if "source" in keys else "",
+                "confidence": r["confidence"] if "confidence" in keys else "",
+                "ms": r["ms"] if "ms" in keys else 0,
+                "cached": bool(r["cached"]) if "cached" in keys else False}
 
     def history_candidates(self, limit: int = 200) -> list:
         """待人工确认入库的候选：未处理 + 非题库/缓存来源（模型真实答过的题）。"""

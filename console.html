@@ -119,6 +119,12 @@ input:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 3px #4c8dff22}
 .btn.primary:hover{filter:brightness(1.08)}
 .btn.ghost{background:transparent}
 .btn:disabled{opacity:.55;cursor:default}
+/* v2.0 准确率档位按钮 */
+#acc-tier-row{gap:8px;flex-wrap:wrap}
+#acc-tier-row .btn{flex-direction:column;align-items:flex-start;gap:1px;
+  line-height:1.35;padding:8px 16px;font-size:13px}
+#acc-tier-row .btn small{font-size:10.5px;font-weight:400;opacity:.6;letter-spacing:.2px}
+#acc-tier-row .btn.primary small{opacity:.85}
 
 /* ---------- 统计 ---------- */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:4px}
@@ -527,6 +533,16 @@ body.light .upbar a{color:#1d4ed8}
 
         <div class="pane" id="pane-acc">
         <div class="rec">
+          <h3>⚡ 准确率档位（一键切换）</h3>
+          <p>不想逐项调参就用这个：点一下同时决定模型档位、交叉验证、CoT 与自检，改完立刻生效。</p>
+          <div class="row" id="acc-tier-row">
+            <button class="btn" data-acc="fast">🚀 极速<small>关验证 / 关 CoT</small></button>
+            <button class="btn" data-acc="balanced">⚖ 均衡<small>复核标注 / 开自检</small></button>
+            <button class="btn" data-acc="accurate">🎯 最准<small>复核仲裁 / 开 CoT</small></button>
+          </div>
+          <div class="tip" id="acc-tier-tip">当前：均衡</div>
+        </div>
+        <div class="rec">
           <h3>🎯 正确率三件套</h3>
           <p>题库命中零成本秒回；答错订正越用越准；交叉验证让两个模型互检。</p>
         </div>
@@ -564,6 +580,28 @@ body.light .upbar a{color:#1d4ed8}
         <div class="warn-box" id="cot-warn" style="display:none">
           ⚠ <b>已开启 CoT</b>：思考型模型的推理过程会消耗大量 token。请确认「云端 token 上限」≥ 1024，否则正文可能被截空导致答案空白。
         </div>
+
+        <div class="field" style="margin-top:14px">
+          <label>多模型投票（留空 = 不投票）</label>
+          <input type="text" id="f-votemodels" placeholder="qwen2.5:7b-instruct, deepseek-r1:7b">
+          <div class="tip">逗号分隔多个模型名，它们与主模型各投一票，票数达标才改写答案。
+            本地两个 7B 模型同时跑会互相抢显存，建议只在云端开；简单短题走快路时不投票</div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>达标票数 vote_min</label>
+            <input type="number" id="f-votemin" min="2" max="5" step="1">
+            <div class="tip">最高票达到该数值才覆盖主模型答案（默认 2）</div>
+          </div>
+          <div class="field">
+            <label>快路阈值（题干字数）</label>
+            <input type="number" id="f-fastlen" min="0" max="400" step="10">
+            <div class="tip">短于该字数的单选直接快路：跳过投票与 CoT。填 0 关闭快路</div>
+          </div>
+        </div>
+        <label class="switch"><input type="checkbox" id="f-verifypar"><span class="track"></span>复核与主模型并行（云端明显提速；本地 Ollama 自动降级为串行）</label>
+        <label class="switch"><input type="checkbox" id="f-cachenorm"><span class="track"></span>缓存键忽略空格与标点（同一题换排版也能命中）</label>
+        <label class="switch"><input type="checkbox" id="f-bankpri"><span class="track"></span>题库/订正命中优先于模型答案（关掉则只作参考）</label>
 
         <div class="field" style="margin-top:14px">
           <label>图片题预处理</label>
@@ -628,6 +666,41 @@ body.light .upbar a{color:#1d4ed8}
           </div>
           <div class="tip">手机和电脑连同一 Wi-Fi；扫码打开控制台后复制接入配置。建议先设访问令牌</div>
         </div>
+        <label class="switch"><input type="checkbox" id="f-lanshare"><span class="track"></span>允许其他设备访问（监听 0.0.0.0；未设访问令牌时自动回落仅本机）</label>
+
+        <div class="field" style="margin-top:14px">
+          <label>接口适配（给别的客户端用）</label>
+          <div class="row2">
+            <div class="field">
+              <label style="font-size:11px">接口形态 api_mode</label>
+              <select id="f-apimode">
+                <option value="auto">自动（两套都收）</option>
+                <option value="ocs">只收 OCS 原生</option>
+                <option value="openai">只收 OpenAI 兼容</option>
+              </select>
+            </div>
+            <div class="field">
+              <label style="font-size:11px">返回形态 response_format</label>
+              <select id="f-resfmt">
+                <option value="text">选项正文（推荐，抗乱序）</option>
+                <option value="letter">仅字母 A/B/C</option>
+                <option value="json">完整 JSON</option>
+              </select>
+            </div>
+          </div>
+          <div class="tip"><code>POST /v1/chat/completions</code> 始终可用，可直接接 ChatBox / LobeChat 等客户端</div>
+        </div>
+        <div class="field">
+          <label>字段映射 field_map（JSON，留空 = 用默认字段名）</label>
+          <input type="text" id="f-fieldmap" placeholder='{"title":"question","options":"choices"}'>
+          <div class="tip">别的客户端字段名不一样时用它翻译，例如把 question 映射成 title</div>
+        </div>
+        <div class="field">
+          <label>允许跨域来源 cors_allow_origin</label>
+          <input type="text" id="f-cors" placeholder="留空 = 不发送 CORS 头；浏览器插件填 chrome-extension://xxx">
+          <div class="tip">网页版前端跨域调用时才需要；不确定就留空</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="f-updauto"><span class="track"></span>发现新版本时自动下载安装包（仍需你点安装）</label>
         </div><!--/pane-adv-->
 
         <div class="mt" style="display:flex;align-items:center;border-top:1px solid var(--line);padding-top:14px">
@@ -1195,8 +1268,53 @@ async function loadConfig(){
   $('f-imggray').checked = !!c.image_grayscale;
   $('f-imgdenoise').checked = !!c.image_denoise;
   $('f-imgside').value = c.image_max_side || 1280;
+  // ---- v2.0 新增项 ----
+  paintAccTier(c.accuracy_mode || 'balanced');
+  $('f-votemodels').value = Array.isArray(c.vote_models)
+    ? c.vote_models.join(', ') : (c.vote_models || '');
+  $('f-votemin').value = c.vote_min || 2;
+  $('f-fastlen').value = (c.fast_path_max_len === undefined || c.fast_path_max_len === null)
+    ? 80 : c.fast_path_max_len;
+  $('f-verifypar').checked = c.verify_parallel !== false;
+  $('f-cachenorm').checked = c.cache_normalize !== false;
+  $('f-bankpri').checked = c.bank_priority !== false;
+  $('f-lanshare').checked = !!c.lan_share;
+  $('f-updauto').checked = !!c.update_auto_download;
+  $('f-apimode').value = c.api_mode || 'auto';
+  $('f-resfmt').value = c.response_format || 'text';
+  $('f-fieldmap').value = (c.field_map && typeof c.field_map === 'object'
+    && Object.keys(c.field_map).length) ? JSON.stringify(c.field_map) : '';
+  $('f-cors').value = c.cors_allow_origin || '';
   $('ocs-cfg').textContent = d.ocs_snippet || '';
 }
+
+/* ---- v2.0 准确率档位 ---- */
+const ACC_TIERS = {
+  fast:     {label:'极速', desc:'关交叉验证、关 CoT、关自检 —— 最快，适合客观题海量刷'},
+  balanced: {label:'均衡', desc:'备用模型复核标注 + 自检，不做仲裁 —— 日常默认'},
+  accurate: {label:'最准', desc:'复核 + 仲裁 + CoT + 自检全开 —— 最慢，适合高分值难题'}
+};
+function paintAccTier(mode){
+  const m = ACC_TIERS[mode] ? mode : 'balanced';
+  document.querySelectorAll('#acc-tier-row .btn').forEach(b => {
+    b.classList.toggle('primary', b.dataset.acc === m);
+  });
+  $('acc-tier-tip').textContent = '当前：' + ACC_TIERS[m].label + ' —— ' + ACC_TIERS[m].desc;
+}
+document.querySelectorAll('#acc-tier-row .btn').forEach(btn => {
+  btn.onclick = async () => {
+    const mode = btn.dataset.acc;
+    paintAccTier(mode);
+    try{
+      const r = await api('/api/accuracy', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({mode})
+      });
+      if(r.ok){ toast('已切到「' + ACC_TIERS[mode].label + '」'); loadConfig(); }
+      else toast(r.message || '切换失败');
+    }catch(e){ toast('切换失败：' + e.message); }
+  };
+});
 
 function toggleCloud(){
   const cloud = $('f-backend').value === 'openai';
@@ -1299,6 +1417,20 @@ $('btn-save').onclick = async () => {
     image_grayscale: $('f-imggray').checked,
     image_denoise: $('f-imgdenoise').checked,
     image_max_side: $('f-imgside').value,
+    // v2.0 正确率与速度
+    vote_models: $('f-votemodels').value.trim(),
+    vote_min: $('f-votemin').value,
+    fast_path_max_len: $('f-fastlen').value,
+    verify_parallel: $('f-verifypar').checked,
+    cache_normalize: $('f-cachenorm').checked,
+    bank_priority: $('f-bankpri').checked,
+    // v2.0 适配与部署
+    lan_share: $('f-lanshare').checked,
+    update_auto_download: $('f-updauto').checked,
+    api_mode: $('f-apimode').value,
+    response_format: $('f-resfmt').value,
+    field_map: $('f-fieldmap').value.trim() || '{}',
+    cors_allow_origin: $('f-cors').value.trim(),
   };
   $('btn-save').disabled = true;
   $('save-msg').className = 'hint'; $('save-msg').textContent = ' 保存中…';
@@ -1771,6 +1903,288 @@ async function toggleAutostart(on){
   setInterval(loadSummary, 8000);
   setInterval(loadBank, 10000);
   setInterval(loadCandidates, 20000);
+})();
+</script>
+
+<script>
+/* ============================================================
+ * v2.0 数据页（历史 / 错题本 / 题库）
+ * 以全屏浮层实现，不侵入原有 view-home / view-adv 结构，
+ * 避免改动老布局带来的连锁问题。
+ * ============================================================ */
+(function(){
+  const NAV = [
+    {id:'history', label:'历史', icon:'🕘'},
+    {id:'wrong',   label:'错题', icon:'✗'},
+    {id:'bankv',   label:'题库', icon:'▤'},
+  ];
+  let curTab = 'history';
+
+  function el(tag, cls, html){
+    const d = document.createElement(tag);
+    if (cls) d.className = cls;
+    if (html != null) d.innerHTML = html;
+    return d;
+  }
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+      {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function fmtMs(ms){
+    if (!ms) return '—';
+    return ms >= 1000 ? (ms/1000).toFixed(1)+'s' : Math.round(ms)+'ms';
+  }
+  const SRC = {model:'模型', vote:'投票', bank:'题库', correction:'订正', rag:'相似题', cache:'缓存'};
+
+  /* ---------- 浮层骨架 ---------- */
+  const mask = el('div');
+  mask.id = 'jy-data';
+  mask.style.cssText = 'position:fixed;inset:0;z-index:60;display:none;' +
+    'background:var(--bg);overflow:auto;';
+  mask.innerHTML = `
+    <div style="max-width:1040px;margin:0 auto;padding:18px 20px 60px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <b style="font-size:17px">数据</b>
+        <div id="jy-tabs" style="display:flex;gap:6px;margin-left:8px"></div>
+        <div style="flex:1"></div>
+        <button class="btn ghost" id="jy-close">关闭 ✕</button>
+      </div>
+      <div id="jy-body"></div>
+    </div>`;
+  document.body.appendChild(mask);
+
+  const tabs = mask.querySelector('#jy-tabs');
+  NAV.forEach(n => {
+    const b = el('button', 'btn ghost', n.label);
+    b.dataset.tab = n.id;
+    b.onclick = () => show(n.id);
+    tabs.appendChild(b);
+  });
+  mask.querySelector('#jy-close').onclick = () => { mask.style.display = 'none'; };
+
+  /* ---------- 顶栏入口 ---------- */
+  const navsw = document.getElementById('navsw');
+  if (navsw && !document.getElementById('nav-v2')) {
+    const box = el('span');
+    box.id = 'nav-v2';
+    box.style.cssText = 'display:flex;gap:6px;margin-left:6px';
+    NAV.forEach(n => {
+      const b = el('button', 'navbtn', n.label);
+      b.onclick = () => show(n.id);
+      box.appendChild(b);
+    });
+    navsw.appendChild(box);
+  }
+
+  function show(tab){
+    curTab = tab;
+    mask.style.display = '';
+    document.body.style.overflow = 'hidden';
+    tabs.querySelectorAll('button').forEach(b => {
+      b.classList.toggle('on', b.dataset.tab === tab);
+      b.style.color = b.dataset.tab === tab ? 'var(--txt)' : 'var(--dim)';
+      b.style.borderColor = b.dataset.tab === tab ? 'var(--acc)' : 'var(--line)';
+    });
+    if (tab === 'history') loadHistory(1);
+    if (tab === 'wrong') loadWrong();
+    if (tab === 'bankv') loadBankTab();
+  }
+
+  const body = () => mask.querySelector('#jy-body');
+
+  /* ---------- 历史 ---------- */
+  async function loadHistory(page, kw){
+    page = page || 1;
+    kw = kw || '';
+    const b = body();
+    b.innerHTML = '<div class="hint" style="padding:20px">加载中…</div>';
+    try{
+      const r = await fetch(`/api/history?page=${page}&limit=50&q=${encodeURIComponent(kw)}`,
+                            {headers: window.jyHeaders ? window.jyHeaders() : {}});
+      const d = await r.json();
+      const items = d.items || [];
+      if (!items.length){
+        b.innerHTML = '<div class="hint" style="padding:20px">还没有答题记录。先去答几道题。</div>';
+        return;
+      }
+      b.innerHTML = `
+        <div class="card">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+            <input id="jy-q" placeholder="搜索题干…" value="${esc(kw)}"
+              style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--line);
+                     background:var(--panel2);color:var(--txt)">
+            <button class="btn" id="jy-q-go">搜索</button>
+            <span class="hint">共 ${d.total || items.length} 条</span>
+          </div>
+          <div class="ans-wrap"><table>
+            <thead><tr>
+              <th style="width:88px">时间</th><th>题目</th><th style="width:120px">答案</th>
+              <th style="width:64px">来源</th><th style="width:64px">置信</th>
+              <th style="width:70px">耗时</th><th style="width:56px">订正</th>
+            </tr></thead>
+            <tbody>${items.map(it => `
+              <tr>
+                <td class="hint">${esc(new Date((it.t||0)*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}))}</td>
+                <td title="${esc(it.q)}">${esc((it.q||'').slice(0,60))}</td>
+                <td>${esc((it.a||'').slice(0,24))}</td>
+                <td><span class="badge b-cache">${esc(SRC[it.source]||it.route||'-')}</span></td>
+                <td class="hint">${it.confidence === 'high' ? '高' : it.confidence === 'low' ? '低' : '中'}</td>
+                <td class="hint">${fmtMs(it.ms)}</td>
+                <td>${it.id ? `<button class="fixbtn" data-hid="${it.id}">✎</button>` : ''}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+            <button class="btn ghost" id="jy-prev" ${page<=1?'disabled':''}>上一页</button>
+            <span class="hint" style="align-self:center">${page} / ${d.pages||1}</span>
+            <button class="btn ghost" id="jy-next" ${page>=(d.pages||1)?'disabled':''}>下一页</button>
+          </div>
+        </div>`;
+      b.querySelector('#jy-q-go').onclick = () => loadHistory(1, b.querySelector('#jy-q').value.trim());
+      b.querySelector('#jy-q').onkeydown = e => { if (e.key === 'Enter') loadHistory(1, e.target.value.trim()); };
+      b.querySelector('#jy-prev').onclick = () => loadHistory(page-1, kw);
+      b.querySelector('#jy-next').onclick = () => loadHistory(page+1, kw);
+      b.querySelectorAll('[data-hid]').forEach(btn => {
+        btn.onclick = () => {
+          const it = items.find(x => String(x.id) === btn.dataset.hid);
+          if (it) quickFix(it);
+        };
+      });
+    }catch(e){
+      b.innerHTML = '<div class="hint" style="padding:20px">加载失败：' + esc(e.message) + '</div>';
+    }
+  }
+
+  async function quickFix(it){
+    const ans = prompt('订正这道题的答案（填选项正文或字母均可）：\n\n' + (it.q||''), it.a || '');
+    if (ans == null || !ans.trim()) return;
+    try{
+      await fetch('/api/fix', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({question: it.q, options: (it.opts||[]).join('\n'),
+                              answer: ans.trim(), note:'历史页订正'})
+      });
+      alert('已订正，下次遇到同题直接命中');
+    }catch(e){ alert('订正失败：' + e.message); }
+  }
+
+  /* ---------- 错题本 ---------- */
+  async function loadWrong(){
+    const b = body();
+    b.innerHTML = '<div class="hint" style="padding:20px">加载中…</div>';
+    try{
+      const r = await fetch('/api/wrong?limit=200', {headers: window.jyHeaders ? window.jyHeaders() : {}});
+      const d = await r.json();
+      const items = d.items || [];
+      if (!items.length){
+        b.innerHTML = '<div class="hint" style="padding:20px">还没有错题。在首页列表里点「👎」标记答错的题，就会出现在这里。</div>';
+        return;
+      }
+      b.innerHTML = `
+        <div class="card">
+          <h2>错题本 <span class="n">${items.length} 条</span></h2>
+          <div class="ans-wrap"><table>
+            <thead><tr><th style="width:88px">时间</th><th>题目</th>
+              <th style="width:130px">当时的答案</th><th style="width:80px">订正</th></tr></thead>
+            <tbody>${items.map(it => `
+              <tr>
+                <td class="hint">${esc(new Date((it.t||0)*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}))}</td>
+                <td title="${esc(it.q)}">${esc((it.q||'').slice(0,60))}</td>
+                <td>${esc((it.a||'').slice(0,26))}</td>
+                <td><button class="fixbtn" data-wid="${it.id}">✎ 订正</button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table></div>
+        </div>`;
+      b.querySelectorAll('[data-wid]').forEach(btn => {
+        btn.onclick = () => {
+          const it = items.find(x => String(x.id) === btn.dataset.wid);
+          if (it) quickFix(it);
+        };
+      });
+    }catch(e){
+      b.innerHTML = '<div class="hint" style="padding:20px">加载失败：' + esc(e.message) + '</div>';
+    }
+  }
+
+  /* ---------- 题库 ---------- */
+  async function loadBankTab(){
+    const b = body();
+    b.innerHTML = `
+      <div class="card">
+        <h2>导入题库 <span class="n">CSV / JSON / TXT</span></h2>
+        <p class="hint" style="margin:0 0 10px">
+          CSV 两列：<code>题干,答案</code>，可选第三列放选项（用 | 分隔）。
+          JSON：<code>[{"question":"…","answer":"…"}]</code>。
+          也可直接粘贴文本：<code>题干|A. xx|B. yy|答案：A</code>
+        </p>
+        <div class="row" style="margin-bottom:10px">
+          <input type="file" id="jy-file" accept=".csv,.json,.txt" style="color:var(--dim)">
+          <button class="btn" id="jy-import-file">导入文件</button>
+        </div>
+        <textarea id="jy-text" rows="8" placeholder="粘贴题库文本…"
+          style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);
+                 background:var(--panel2);color:var(--txt);font-family:inherit"></textarea>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary" id="jy-import-text">导入文本</button>
+          <span class="hint" id="jy-imp-msg"></span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>题库概况 <span class="n" id="jy-bank-n">—</span></h2>
+        <div id="jy-bank-list" class="hint">加载中…</div>
+      </div>`;
+    const msg = b.querySelector('#jy-imp-msg');
+    b.querySelector('#jy-import-file').onclick = async () => {
+      const f = b.querySelector('#jy-file').files[0];
+      if (!f) { msg.textContent = '先选一个文件'; return; }
+      const fd = new FormData();
+      fd.append('file', f);
+      msg.textContent = '导入中…';
+      try{
+        const r = await fetch('/api/bank/import', {method:'POST', body: fd});
+        const d = await r.json();
+        msg.textContent = d.message || (d.ok ? '导入完成' : '导入失败');
+        loadBankList();
+      }catch(e){ msg.textContent = '导入失败：' + e.message; }
+    };
+    b.querySelector('#jy-import-text').onclick = async () => {
+      const text = b.querySelector('#jy-text').value;
+      if (!text.trim()) { msg.textContent = '文本框是空的'; return; }
+      msg.textContent = '导入中…';
+      try{
+        const r = await fetch('/api/bank/import', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({text})
+        });
+        const d = await r.json();
+        msg.textContent = d.message || (d.ok ? '导入完成' : '导入失败');
+        loadBankList();
+      }catch(e){ msg.textContent = '导入失败：' + e.message; }
+    };
+    loadBankList();
+  }
+
+  async function loadBankList(){
+    const box = document.getElementById('jy-bank-list');
+    if (!box) return;
+    try{
+      const r = await fetch('/api/bank', {headers: window.jyHeaders ? window.jyHeaders() : {}});
+      const d = await r.json();
+      const items = (d.items || d.bank || []).slice(0, 50);
+      const n = document.getElementById('jy-bank-n');
+      if (n) n.textContent = (d.count != null ? d.count : items.length) + ' 条';
+      if (!items.length){ box.innerHTML = '题库是空的，导入一点吧。'; return; }
+      box.innerHTML = '<div class="ans-wrap"><table><thead><tr>' +
+        '<th>题目</th><th style="width:140px">答案</th><th style="width:64px">命中</th>' +
+        '</tr></thead><tbody>' + items.map(it => `
+          <tr><td title="${esc(it.question||it.q)}">${esc((it.question||it.q||'').slice(0,56))}</td>
+              <td>${esc(String(it.answer||it.a||'').slice(0,24))}</td>
+              <td class="hint">${it.hits||0}</td></tr>`).join('') + '</tbody></table></div>';
+    }catch(e){ box.innerHTML = '加载失败：' + esc(e.message); }
+  }
+
+  window.jyShowData = show;
 })();
 </script>
 

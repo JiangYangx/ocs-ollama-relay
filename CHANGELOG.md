@@ -2,6 +2,70 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.0] - 2026-11-08
+
+> 主题：从「答题工具」变成「可被任何客户端调用的答题服务」。
+> 四轴同时推进：正确率（投票）、速度（快路 + 并行复核）、适配性（OpenAI 兼容 + 字段映射）、便捷性（数据页 + 档位 + 自动迁移）。
+
+### Added
+
+**多模型投票（正确率）**
+- `vote_models` / `vote_min`：配置多个模型各投一票，最高票达到阈值才改写主模型答案；主模型答案算第 1 票，其余模型**并发**补票（不把延迟乘上模型数）
+- 结果新增 `source`（model / vote / bank / correction / rag / cache）与 `confidence`（high / medium / low），前端直接打徽章
+- 票数不足时保留主模型答案，并在 `note` 里写明「最高 X 票，未达 Y 票」
+
+**快路与并行复核（速度）**
+- `fast_path_max_len`：短于该字数的单选直连模型，跳过投票 / CoT / 自检（填 0 关闭）
+- `verify_parallel`：复核请求与主模型并行发出，整体耗时≈max(主, 复核) 而非两者相加；本地 Ollama 自动降级为串行（避免抢显存反而更慢）
+- `cache_normalize`：缓存键忽略空格与标点，同一题换排版也能命中
+- 题库 / 相似题命中改为沿用 `delay_on_cache` 开关，不再强制补节律
+
+**适配层（适配性）**
+- **`POST /v1/chat/completions`**：标准 OpenAI 响应结构，ChatBox / LobeChat / 各类插件可直接接入；额外带非标准 `jy` 扩展字段（source / confidence / votes / ms / cached）
+- `api_mode`（auto / ocs / openai）：限定只收哪种请求形态
+- `field_map`：字段名翻译，例如 `{"title":"question","options":"choices"}`
+- `response_format`（text / letter / json）：`letter` 只回 A/B/C，`json` 回完整结构
+- `cors_allow_origin`：按需发送 CORS 头（浏览器插件 / 网页前端跨域调用）
+- 请求解析兼容 `options` 为 `[{"key":"A","text":"北京"}]` 结构化数组，也兼容字符串里塞 JSON 数组
+
+**数据页（便捷性）**
+- 控制台顶栏新增「历史 / 错题 / 题库」三个入口（全屏浮层，不打断原有布局）
+- 历史：分页 + 关键词搜索 + 来源徽章 + 置信度 + 耗时 + 一键订正
+- 错题：从 `quiz` 表按答错记录列出，直接订正
+- 题库：拖文件导入（CSV / JSON / TXT）、文本粘贴导入、题库概况
+
+**准确率档位**
+- `GET/POST /api/accuracy`：fast / balanced / accurate 三档，一次设定同时改 `tier` + `verify_mode` + `cot_mode` + `self_check`，避免只调一项导致参数互相打架
+- 设置页「正确率增强」顶部三个按钮，点一下即时生效
+
+**新接口**
+- `GET /api/wrong`：错题列表
+- `POST /api/bank/import`：支持 multipart 文件（CSV/JSON/TXT）与 JSON body；CSV 自动识别表头；`items` 里的题干字段兼容 `question/title/q/题目`，答案兼容 `answer/a/答案`
+- `GET /api/history?page=&limit=&q=`：改为分页 + 搜索，返回 `total` / `pages`
+- `GET /api/update/download` + `POST /api/update/install`：自动挑 Release 里的安装包下载 / 安装
+- `GET /api/accuracy`：返回三档预设内容，前端据此渲染
+
+**配置与版本治理**
+- `VERSION` 文件成为唯一版本来源：`ocs_relay.py` 运行时读、构建脚本注入兜底值、`installer.iss` 由 `build_installer.bat` 传入 `/DMyAppVersion`
+- `config_version` 自动迁移：老配置启动时自动补齐新增项，**只补缺不改值**，动手前备份为 `config.json.bak.v{旧版本}`
+- `lan_share` 开关进设置页；没有访问令牌时**双重保险**自动回落 `127.0.0.1`（保存时改回 false，启动时再兜一次）
+
+### Changed
+- `EDITABLE_FIELDS` 支持 list / dict 类型：`vote_models` 可直接填 `a, b, c`（逗号 / 中文逗号 / 换行都行），`field_map` 填 JSON 对象字符串
+- 结果字典新增 `source` / `confidence` / `votes`，题库与相似题命中也标注来源
+- 控制台「准确率增强」页重排：档位按钮 → 三件套 → 投票与速度 → 图片预处理
+
+### Fixed
+- **`options` 为结构化数组时变成 Python dict 字符串**：`[{"key":"A","text":"北京"}]` 以前会被 `str()` 成 `"{'key': 'A', 'text': '北京'}"`，导致答案匹配失败、答题结果里出现一坨 dict 文本。现在统一走 `_opt_to_line()` 转成 `A. 北京`
+- **配置迁移永远不触发**：`DEFAULT_CONFIG` 自带 `config_version: 2`，合并后读到的永远是「最新版」。改为按文件里的原始值判断
+- **题库 JSON 导入题干丢失**：`items` 里用 `title` 而非 `question` 时题干为空，选项整体错位成题干。现在兼容多种字段名，并在题干/答案缺失时直接跳过
+- `/api/bank/import` 选项文本含 `|` 时会破坏单行格式，导入前替换为 `/`
+
+### 使用提示
+- 多模型投票在本地两个 7B 模型上会互相抢显存（实测 12s），**建议只在云端后端开启**；本地想快就把 `vote_models` 留空
+- 升级后 `config.json` 会被自动补上十几个新配置项，原有值不动；如需回滚，用同目录的 `config.json.bak.v1`
+
+
 ## [1.5.0] - 2026-11-08
 
 > 主题：像一个正经软件。功能不加不减，把「控制台」变成「答题助手」。

@@ -3,7 +3,12 @@
 ; 产物：dist/JY-Relay-Setup-{版本}.exe
 
 #define MyAppName "JY 答题助手"
-#define MyAppVersion "1.5.0"
+; 版本号唯一来源：仓库根目录 VERSION 文件。
+; build_installer.bat 会读出 VERSION 并通过 /DMyAppVersion=2.0.0 传入；
+; 直接双击 ISCC 编译时退回下面的兜底值（不会把版本号写死在两处）。
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0"
+#endif
 #define MyAppExeName "JY-Relay.exe"
 #define MyAppRepo "https://github.com/JiangYangx/ocs-ollama-relay"
 

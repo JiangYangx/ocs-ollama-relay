@@ -64,5 +64,19 @@
   "max_gap_ms": 6000,
   "auto_open_browser": true,
   "update_check": true,
-  "update_repo": "JiangYangx/ocs-ollama-relay"
+  "update_repo": "JiangYangx/ocs-ollama-relay",
+  "verify_parallel": true,
+  "vote_models": [],
+  "vote_min": 2,
+  "bank_priority": true,
+  "accuracy_mode": "balanced",
+  "cache_normalize": true,
+  "fast_path_max_len": 80,
+  "lan_share": false,
+  "api_mode": "auto",
+  "field_map": {},
+  "response_format": "text",
+  "cors_allow_origin": "",
+  "update_auto_download": false,
+  "config_version": 2
 }

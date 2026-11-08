@@ -1,7 +1,10 @@
 # JY 答题助手（JY Relay）
 
 一个把「标准 HTTP 接口」转成「本地 Ollama / OpenAI 兼容云端模型」的桌面答题助手。
-内置题型路由、结果缓存、多模型交叉验证、题库匹配，可打包为单文件 exe。
+内置题型路由、结果缓存、多模型交叉验证、多模型投票、题库匹配，可打包为单文件 exe。
+
+**v2.0：不再只是答题客户端的中转**——同时提供 OCS 原生接口和标准 `POST /v1/chat/completions`，
+ChatBox / LobeChat / 任何只认 OpenAI 协议的客户端都能直接接进来。
 
 **v1.5 起：打开就是首页**——状态、今天答了多少、正确率、平均耗时，加一个「开始答题」按钮；全部参数收进「⚙ 设置」，不懂模型也能用。
 
@@ -215,6 +218,12 @@ dist/
 | `/api/config/import` | POST | 导入 `.jyconfig`（拒收 api_key） |
 | `/api/bank/auto` | POST | 从 history.jsonl 自动建库（`{"force": false}`） |
 | `/api/corrections` | GET / POST / DELETE | 人工订正：列表+最近答题 / 新增 / 删除（`?key=`） |
+| **`/v1/chat/completions`** | POST | **OpenAI 兼容端点**：标准 `chat.completion` 结构，任何 OpenAI 客户端可直接接 |
+| `/api/history` | GET | 答题历史分页 + 搜索（`?page=1&limit=50&q=关键词`） |
+| `/api/wrong` | GET | 错题列表（`?limit=200`） |
+| `/api/bank/import` | POST | 一键导入：multipart 文件（CSV / JSON / TXT）或 JSON body |
+| `/api/accuracy` | GET / POST | 准确率档位：`{"mode":"fast|balanced|accurate"}`，一次改四项参数 |
+| `/api/update/check` `/download` `/install` | GET / GET / POST | 检查更新 / 下载安装包 / 触发安装 |
 | `/` | GET | 控制台页面 |
 
 ```bash
@@ -230,9 +239,26 @@ curl -X POST http://127.0.0.1:5000/api/qa \
   "match": "exact",
   "model": "qwen2.5:7b-instruct",
   "cost": 1.83,
+  "source": "vote",
+  "confidence": "high",
+  "votes": [
+    {"model": "qwen2.5:7b-instruct", "answer": "群众路线"},
+    {"model": "deepseek-r1:7b", "answer": "群众路线"}
+  ],
   "success": true
 }
 ```
+
+### 用 OpenAI 客户端接入
+
+```bash
+curl -X POST http://127.0.0.1:5000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"单选题：1+1等于几？\nA. 2\nB. 3"}]}'
+```
+
+返回标准 `choices[0].message.content`，另带 `jy` 扩展字段（`source` / `confidence` / `votes` / `ms` / `cached`）。
+ChatBox、LobeChat 之类把「API 地址」填 `http://127.0.0.1:5000/v1` 即可。
 
 详见 [docs/API.md](docs/API.md)。
 
@@ -279,6 +305,46 @@ curl -X POST http://127.0.0.1:5000/api/qa \
 
 环境变量 `OLLAMA_MODEL` / `OLLAMA_URL` / `BACKEND` / `API_BASE` / `API_KEY` 可覆盖对应配置。
 以 `_` 开头的键是注释，保存配置时会被原样保留。
+
+**v2.0 新增配置**：
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `vote_models` | `[]` | 参与投票的模型名列表，空 = 不投票。多个模型各投一票 |
+| `vote_min` | `2` | 最高票达到该值才改写主模型答案 |
+| `fast_path_max_len` | `80` | 题干短于该字数走快路（跳过投票/CoT/自检）；`0` = 关闭 |
+| `verify_parallel` | `true` | 复核与主模型并行；本地 Ollama 自动降级 |
+| `cache_normalize` | `true` | 缓存键忽略空格标点 |
+| `bank_priority` | `true` | 题库/订正命中优先于模型答案 |
+| `accuracy_mode` | `balanced` | `fast` / `balanced` / `accurate`，与档位按钮联动 |
+| `api_mode` | `auto` | `auto` / `ocs` / `openai`：限定接受的请求形态 |
+| `field_map` | `{}` | 字段名映射，如 `{"title":"question","options":"choices"}` |
+| `response_format` | `text` | `text` 选项正文 / `letter` 仅字母 / `json` 完整结构 |
+| `cors_allow_origin` | `""` | 允许的跨域来源；空 = 不发 CORS 头 |
+| `lan_share` | `false` | 允许其他设备访问（无 `auth_token` 时自动回落本机） |
+| `update_auto_download` | `false` | 发现新版自动下载安装包（仍需手动点安装） |
+| `config_version` | `2` | 配置结构版本，老配置启动时自动补齐新键并备份 |
+
+---
+
+## 四轴能力（v2.0）
+
+**正确率**
+
+| 手段 | 触发 | 代价 |
+|---|---|---|
+| 题库 / 订正命中 | 题干+选项完全一致 | 0（毫秒级） |
+| 相似题检索（RAG） | 同考点不同表述 | 推理一次 |
+| 交叉验证复核 | `verify_mode=fast/full` | 多一次请求（可并行） |
+| 多模型投票 | `vote_models` 非空且非快路 | 并发补票，不叠延迟 |
+| CoT 先推理 | `cot_mode` 或难题自动 | token + 时间 |
+| 答案自检重答 | `self_check` | 可疑时才触发 |
+
+**速度**：快路（短单选直连）、并行复核、缓存归一化、题库命中不补节律。
+
+**适配性**：OCS 原生 + OpenAI `/v1/chat/completions` 双协议；`api_mode` 限定形态；`field_map` 翻译字段；`response_format` 决定返回样子。
+
+**便捷性**：准确率三档一键切；控制台「历史 / 错题 / 题库」数据页；题库拖文件导入；配置自动迁移；更新检测+下载。
 
 ---
 
