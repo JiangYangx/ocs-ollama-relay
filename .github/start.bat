@@ -1,18 +1,18 @@
 @echo off
 chcp 65001 >nul
-title OCS Relay
+title JY Relay
 cd /d "%~dp0"
 
 echo.
 echo ============================================
-echo   OCS Web-Course Helper - Local Relay
+echo   JY Relay - Local LLM Relay
 echo ============================================
 echo.
 
 rem --- 1. Prefer the packaged EXE ---
-if exist "OCS.exe" (
-    echo [1/3] Found OCS.exe, starting...
-    start "" "OCS.exe"
+if exist "JY-Relay.exe" (
+    echo [1/3] Found JY-Relay.exe, starting...
+    start "" "JY-Relay.exe"
     goto :done
 )
 
@@ -21,7 +21,7 @@ echo [1/3] No EXE found, trying Python...
 where python >nul 2>nul
 if errorlevel 1 (
     echo.
-    echo [ERROR] Neither OCS.exe nor Python was found.
+    echo [ERROR] Neither JY-Relay.exe nor Python was found.
     echo.
     echo   Option A: build the EXE first  -^> run build.bat
     echo   Option B: install Python 3.8+  -^> https://www.python.org/downloads/

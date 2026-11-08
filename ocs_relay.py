@@ -35,18 +35,44 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import io
 import json
 import logging
 import os
 import random
 import re
+import socket
 import sys
 import threading
 import time
+import zipfile
 from collections import OrderedDict, deque
 
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
+
+# v1.3 模块：存储 / 预处理 / 相似题检索 / 答案自检 / 档位预设
+# 全部可选导入——任何一个文件缺失，程序退化为 v1.2 的行为，而不是起不来。
+try:
+    import jy_store
+except Exception:                                     # pragma: no cover
+    jy_store = None
+try:
+    import jy_prep
+except Exception:                                     # pragma: no cover
+    jy_prep = None
+try:
+    import jy_rag
+except Exception:                                     # pragma: no cover
+    jy_rag = None
+try:
+    import jy_check
+except Exception:                                     # pragma: no cover
+    jy_check = None
+try:
+    import jy_tiers
+except Exception:                                     # pragma: no cover
+    jy_tiers = None
 
 # --------------------------------------------------------------------------- #
 # 路径处理
@@ -55,10 +81,10 @@ from flask import Flask, jsonify, request
 # --------------------------------------------------------------------------- #
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
-    APP_VERSION = "1.2.1"
+    APP_VERSION = "1.4.0"
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    APP_VERSION = "1.2.1"
+    APP_VERSION = "1.4.0"
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 LOG_PATH = os.path.join(BASE_DIR, "relay.log")
@@ -101,6 +127,32 @@ DEFAULT_CONFIG = {
     "prompt_preset": "default",
     # 5) CoT：难题先推理再作答（对多选/计算题提升明显，稍慢）
     "cot_mode": False,
+    # 6) v1.3 档位：一键预设（speed / balanced / accurate），单项仍可覆盖
+    "tier": "balanced",
+    "auto_cot": True,                 # 复杂题（多选/长题干/计算）自动开 CoT
+    "auto_tier": True,                # 简单题走轻量模型，复杂题走旗舰
+    "light_model": "",                # 轻量模型；留空=主模型但压短 token
+    # 7) v1.3 相似题检索（RAG）
+    "rag_enable": False,              # 默认关：开启前先跑一批样本看命中质量
+    "rag_backend": "ngram",           # ngram（零依赖）/ vector（需 Ollama embedding + numpy）
+    "rag_embed_model": "bge-m3",      # vector 模式用的本地 embedding 模型
+    "rag_top_k": 3,
+    "rag_direct": 0.88,               # ≥ 该相似度直接采用答案，不问模型
+    "rag_inject": 0.75,               # 该区间以上作为参考注入提示词
+    # 8) v1.3 答案自检
+    "self_check": True,               # 越界字母/空答案/多选漏选，自动修正或重答一次
+    # 9) v1.3 前置预处理
+    "preprocess_text": True,          # 去 HTML/广告/多余空白（只作用于送模型的内容）
+    "preprocess_image": True,         # 长边缩放到 image_max_side 再送视觉模型
+    "image_max_side": 1280,
+    "image_grayscale": False,         # 灰度默认关：图表/地图的颜色本身就是信息
+    "image_denoise": False,
+    # 10) v1.3 持久化与容错
+    "cache_sqlite": True,             # 缓存落 SQLite（L2），重启后仍能命中
+    "cache_ttl_hours": 168,           # 缓存有效期（小时）
+    "local_fallback": True,           # 云端失败/限流时自动切本地 Ollama
+    "local_fallback_url": "http://127.0.0.1:11434",
+    "local_fallback_model": "qwen2.5:7b-instruct",
 
     "keep_alive": "30m",              # 模型驻留内存时长，避免每题重新加载（仅 Ollama）
     "num_ctx": 4096,                  # 上下文窗口，题目够用且最省显存（仅 Ollama）
@@ -168,6 +220,28 @@ EDITABLE_FIELDS = {
     "delay_on_cache": bool,
     "verbose": bool,
     "auto_open_browser": bool,
+    # ---- v1.3 ----
+    "tier": str,
+    "auto_cot": bool,
+    "auto_tier": bool,
+    "light_model": str,
+    "rag_enable": bool,
+    "rag_backend": str,
+    "rag_embed_model": str,
+    "rag_top_k": int,
+    "rag_direct": float,
+    "rag_inject": float,
+    "self_check": bool,
+    "preprocess_text": bool,
+    "preprocess_image": bool,
+    "image_max_side": int,
+    "image_grayscale": bool,
+    "image_denoise": bool,
+    "cache_sqlite": bool,
+    "cache_ttl_hours": int,
+    "local_fallback": bool,
+    "local_fallback_url": str,
+    "local_fallback_model": str,
 }
 
 _CFG_LOCK = threading.RLock()
@@ -704,10 +778,46 @@ CACHE = TTLCache(CFG.get("cache_size", 1024))
 # --------------------------------------------------------------------------- #
 BANK_PATH = os.path.join(BASE_DIR, "bank.json")
 CORRECTIONS_PATH = os.path.join(BASE_DIR, "corrections.json")
+HISTORY_PATH = os.path.join(BASE_DIR, "history.jsonl")   # 每题一行，自动建库的数据来源
+DB_PATH = os.path.join(BASE_DIR, "jy_data.db")           # v1.3：SQLite 主存储
 _KB_LOCK = threading.Lock()
+
+# ---- v1.3 存储层 ----
+# SQLite 成为主存储；bank.json / corrections.json 只作为导入导出格式。
+# 首次启动自动把旧 json 迁进来（幂等，只迁一次）。
+STORE = None
+STORE_ERROR = ""
+if jy_store is not None:
+    try:
+        STORE = jy_store.Store(DB_PATH)
+        if STORE.meta_get("migrated_v13") != "1":
+            jy_store.migrate_json(STORE, BANK_PATH, CORRECTIONS_PATH, HISTORY_PATH)
+            STORE.meta_set("migrated_v13", "1")
+    except Exception as _e:                          # pragma: no cover
+        STORE = None
+        STORE_ERROR = str(_e)
+
+
+def store_stats() -> dict:
+    if STORE is None:
+        return {"enabled": False, "error": STORE_ERROR or "jy_store 未加载"}
+    try:
+        return {"enabled": True, "bank": STORE.bank_count(),
+                "cache": STORE.cache_count(), "history": STORE.history_count(),
+                "db": DB_PATH}
+    except Exception as e:
+        return {"enabled": False, "error": str(e)}
 
 
 def _load_json_map(path: str) -> dict:
+    if STORE is not None:
+        try:
+            if path == BANK_PATH:
+                return STORE.load_bank()
+            if path == CORRECTIONS_PATH:
+                return STORE.load_corrections()
+        except Exception as e:
+            log.warning("SQLite 读取失败，回落到 json：%s", e)
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -717,6 +827,18 @@ def _load_json_map(path: str) -> dict:
 
 
 def _save_json_map(path: str, data: dict) -> None:
+    """v1.3：写 SQLite（单行 upsert 级别，不再是全量重写 5MB json）。
+    同时保留一份 json 快照，方便用户备份/迁移——但只在导入、退出等低频时机写。"""
+    if STORE is not None:
+        try:
+            if path == BANK_PATH:
+                STORE.bank_sync(data)
+                return
+            if path == CORRECTIONS_PATH:
+                STORE.corrections_sync(data)
+                return
+        except Exception as e:
+            log.warning("SQLite 写入失败，回落到 json：%s", e)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
@@ -740,6 +862,96 @@ def q_key(title: str, options_text: str = "", images: list | None = None) -> str
 
 BANK: dict = _load_json_map(BANK_PATH)          # key -> {answer, options, qtype, ts, hits}
 CORRECTIONS: dict = _load_json_map(CORRECTIONS_PATH)  # key -> {answer, options, qtype, ts, note}
+_HITS_BUF = [0]                                  # 命中计数缓冲，攒够 50 次落盘一次
+
+
+# --------------------------------------------------------------------------- #
+# 相似题检索（RAG）· v1.3
+#   题库精确命中要求题干一字不差，实际命中率只有几个点。
+#   相似题检索找「同考点、不同表述」的题，把答案/解析作为参考给模型，
+#   这才是几万条外部题库真正能产生价值的地方。
+# --------------------------------------------------------------------------- #
+RAG = jy_rag.RagIndex() if jy_rag is not None else None
+RAG_STATE = {"docs": 0, "backend": "", "sig": "", "built_at": 0, "error": ""}
+RAG_PATH = os.path.join(BASE_DIR, "rag_index.pkl")
+_RAG_LOCK = threading.Lock()
+
+
+def _bank_signature() -> str:
+    if STORE is None:
+        return ""
+    try:
+        rows = STORE._query("SELECT COUNT(*) c FROM bank")[0]["c"]
+        return f"n{rows}"
+    except Exception:
+        return ""
+
+
+def rag_rebuild(force: bool = False, wait: bool = False) -> dict:
+    """（重）建索引。题库变了才重建，结果缓存到 rag_index.pkl。"""
+    if RAG is None or jy_rag is None:
+        return {"docs": 0, "backend": "", "error": "jy_rag 未加载"}
+    with _RAG_LOCK:
+        try:
+            rows = STORE.bank_for_index() if STORE is not None else []
+        except Exception as e:
+            return {"docs": 0, "backend": "", "error": str(e)}
+        if not rows:
+            RAG_STATE.update({"docs": 0, "backend": "", "sig": ""})
+            return {"docs": 0, "backend": "", "error": ""}
+
+        sig = f"{len(rows)}:{rows[0].get('key', '')[-6:]}"
+        if not force and RAG_STATE["sig"] == sig and RAG.rows:
+            return {"docs": len(RAG.rows), "backend": RAG.backend, "error": ""}
+        if not force and not RAG.rows:
+            if RAG.load(RAG_PATH, sig):
+                RAG_STATE.update({"docs": len(RAG.rows), "backend": RAG.backend,
+                                  "sig": sig, "built_at": time.time()})
+                return {"docs": len(RAG.rows), "backend": RAG.backend, "error": ""}
+
+        embed = None
+        if (CFG.get("rag_backend") or "ngram") == "vector":
+            try:
+                base = (CFG.get("ollama_url") or "").split("/api/")[0]
+                embed = jy_rag.make_embed_fn(base, CFG.get("rag_embed_model") or "bge-m3")
+            except Exception:
+                embed = None
+        try:
+            info = RAG.build(rows, CFG.get("rag_backend") or "ngram", embed)
+            RAG_STATE.update({"docs": info.get("docs", 0),
+                              "backend": info.get("backend", ""),
+                              "sig": sig, "built_at": time.time(), "error": ""})
+            RAG.save(RAG_PATH, sig)
+            log.info("RAG 索引就绪：%s 条 / %s", RAG_STATE["docs"], RAG_STATE["backend"])
+            return {"docs": RAG_STATE["docs"], "backend": RAG_STATE["backend"], "error": ""}
+        except Exception as e:
+            log.warning("RAG 建索引失败：%s", e)
+            RAG_STATE["error"] = str(e)
+            return {"docs": 0, "backend": "", "error": str(e)}
+
+
+def rag_lookup(title: str, opts: list, options_text: str):
+    """返回 (直接命中信息 | None, 参考片段文本)。"""
+    if not (CFG.get("rag_enable") and RAG is not None and RAG.rows):
+        return None, ""
+    try:
+        res = RAG.search(title, int(CFG.get("rag_top_k", 3)))
+    except Exception as e:
+        log.debug("RAG 检索失败：%s", e)
+        return None, ""
+    if not res:
+        return None, ""
+    use, ref = jy_rag.split_reference(res, float(CFG.get("rag_direct", 0.88)),
+                                      float(CFG.get("rag_inject", 0.75)))
+    if use:
+        score, row = use
+        ans = row.get("answer") or ""
+        final, form, note = match_option(ans, opts)
+        if not final:
+            final, form, note = ans, "raw", "原样返回"
+        return {"score": score, "row": row, "answer": final,
+                "raw": ans, "form": form, "note": note}, ""
+    return None, (jy_rag.format_reference(ref) if ref else "")
 
 
 def bank_lookup(title: str, options_text: str, images: list | None = None):
@@ -758,15 +970,23 @@ def bank_lookup(title: str, options_text: str, images: list | None = None):
         if k in CORRECTIONS:
             rec = CORRECTIONS[k]
             rec["hits"] = rec.get("hits", 0) + 1
-            with _KB_LOCK:
-                _save_json_map(CORRECTIONS_PATH, CORRECTIONS)
+            # v1.3：单行 UPDATE（0.05ms），不再全量重写 corrections.json
+            if STORE is not None:
+                try:
+                    STORE.correction_hit(k)
+                except Exception:
+                    pass
             return rec.get("answer", ""), "人工订正"
     for k in keys:
         if CFG.get("bank_enabled", True) and k in BANK:
             rec = BANK[k]
             rec["hits"] = rec.get("hits", 0) + 1
-            with _KB_LOCK:
-                _save_json_map(BANK_PATH, BANK)
+            # v1.3：单行 UPDATE。原来每次命中重写整个 json，上万条时 148ms
+            if STORE is not None:
+                try:
+                    STORE.bank_hit(k)
+                except Exception:
+                    pass
             return rec.get("answer", ""), "题库"
     return None, None
 
@@ -856,6 +1076,7 @@ def import_bank(text: str) -> tuple[int, int, list[str]]:
                 "answer": e["answer"], "options": e["options"],
                 "qtype": e["qtype"], "ts": time.time(),
                 "hits": BANK.get(key, {}).get("hits", 0),
+                "question": e["question"], "verified": True, "src": "import",
             }
         if entries:
             _save_json_map(BANK_PATH, BANK)
@@ -884,6 +1105,128 @@ def del_correction(key: str) -> bool:
             _save_json_map(CORRECTIONS_PATH, CORRECTIONS)
             return True
     return False
+
+
+# --------------------------------------------------------------------------- #
+# 历史记录 → 自动建库
+#   答过的题写进 history.jsonl；攒够之后一键沉淀成题库，
+#   同一道题第二次出现就是毫秒级命中（cost=0），而且不受模型波动影响。
+#   这是"越用越准、越用越快"的来源，比任何外部题库都贴合你自己的题目分布。
+# --------------------------------------------------------------------------- #
+def append_history(result: dict) -> None:
+    """真实作答落盘一行。缓存/题库命中不写，避免自我强化。"""
+    try:
+        if not result.get("success") or result.get("route") == "bank":
+            return
+        if result.get("cached"):
+            return
+        q = (result.get("question") or "").strip()
+        a = (result.get("answer") or "").strip()
+        if not q or not a:
+            return
+        rec = {
+            "t": round(time.time(), 3),
+            "q": q,
+            "opts": result.get("options") or [],
+            "a": a,
+            "route": result.get("route") or "",
+            "model": result.get("model") or "",
+            "verify": result.get("verify") or "",
+        }
+        with _KB_LOCK:
+            if STORE is not None:
+                result["_hid"] = STORE.history_add(rec)
+            else:
+                with open(HISTORY_PATH, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as e:
+        log.debug("写历史记录失败（不影响答题）：%s", e)
+
+
+def _ans_sig(ans: str) -> str:
+    """答案归一化：去字母前缀、去空白，用于判断"同一题是否答出过不同答案"。"""
+    s = re.sub(r"^[A-Ha-h][.．、:：)）]\s*", "", (ans or "").strip())
+    return _norm(s)
+
+
+def build_bank_from_history(force: bool = False) -> dict:
+    """把 history.jsonl 里可信的作答沉淀进题库。
+
+    可信判定：
+      - success 且答案非空
+      - verify=conflict 的题直接跳过（模型自己都打架）
+      - verify=agree/arbitrated 视为高置信，优先采用那一次的答案
+      - 没有验证标记时，要求同一题历史上只出现过一种答案，避免把偶发错误固化
+    题库里已有的题默认跳过（force=True 才覆盖）。
+    """
+    empty = {"added": 0, "updated": 0, "skipped": 0, "conflict": 0, "total": 0}
+    if not os.path.exists(HISTORY_PATH):
+        return {**empty, "error": "还没有历史记录：先正常答几道题，再来建库"}
+
+    seen: dict = {}
+    total = bad = 0
+    try:
+        with open(HISTORY_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    bad += 1
+                    continue
+                total += 1
+                if not rec.get("q") or not rec.get("a") or rec.get("route") == "bank":
+                    continue
+                if rec.get("verify") == "conflict":
+                    seen.setdefault(q_key(rec["q"], "\n".join(rec.get("opts") or [])),
+                                    {"answers": set(), "conflict": True, "rec": rec})["conflict"] = True
+                    continue
+                key = q_key(rec["q"], "\n".join(rec.get("opts") or []))
+                if not key:
+                    continue
+                item = seen.setdefault(key, {"answers": set(), "conflict": False,
+                                             "rec": rec, "high": False})
+                item["answers"].add(_ans_sig(rec["a"]))
+                if rec.get("verify") in ("agree", "arbitrated") and not item.get("high"):
+                    item["high"] = True
+                    item["rec"] = rec          # 高置信那次优先
+                elif not item.get("high"):
+                    item["rec"] = rec          # 否则取最近一次
+    except Exception as e:
+        return {**empty, "error": f"读取历史失败：{e}"}
+
+    added = updated = skipped = conflict = 0
+    with _KB_LOCK:
+        for key, item in seen.items():
+            if not key:
+                continue
+            if item.get("conflict") and not item.get("high"):
+                conflict += 1
+                continue
+            if not item.get("high") and len(item["answers"]) > 1:
+                conflict += 1
+                continue
+            rec = item["rec"]
+            exists = key in BANK
+            if exists and not force:
+                skipped += 1
+                continue
+            BANK[key] = {
+                "answer": rec["a"], "options": rec.get("opts") or [],
+                "qtype": "multiple" if len(re.sub(r"[^A-Ha-h]", "", rec["a"])) > 1 else "single",
+                "ts": time.time(), "hits": BANK.get(key, {}).get("hits", 0),
+                "src": "auto", "question": rec["q"], "verified": False,
+            }
+            if exists:
+                updated += 1
+            else:
+                added += 1
+        if added or updated:
+            _save_json_map(BANK_PATH, BANK)
+    return {"added": added, "updated": updated, "skipped": skipped,
+            "conflict": conflict, "total": total, "bad_lines": bad}
 
 # --------------------------------------------------------------------------- #
 # 推理队列：同一时刻最多 max_concurrency 路推理，其余排队
@@ -1050,12 +1393,26 @@ def _norm_image(img: str) -> tuple[str, str]:
     return "data:image/png;base64," + img, img
 
 
+# v1.3：连接复用。每题省一次 TCP + TLS 握手（云端实测 80~200ms/题）。
+# 这是"更快"里性价比最高的一项，几乎没有风险。
+_SESSION = requests.Session()
+try:
+    _adapter = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=8,
+                                             max_retries=0)
+    _SESSION.mount("http://", _adapter)
+    _SESSION.mount("https://", _adapter)
+except Exception:                                    # pragma: no cover
+    pass
+
+
 def _build_request(prompt: str, model: str, use_think_flag: bool,
-                   images: list[str] | None = None) -> tuple[str, dict, dict]:
+                   images: list[str] | None = None,
+                   max_tokens: int | None = None) -> tuple[str, dict, dict]:
     """构造请求 url / body / headers。返回 (url, json, headers)。"""
     backend = (CFG.get("backend") or "ollama").lower()
     headers = {"Content-Type": "application/json"}
     stop = ["\n题目", "\n选项", "\n【要求】"]
+    cap = int(max_tokens or CFG.get("cloud_max_tokens", 1024))
 
     if backend == "openai":
         base = (CFG.get("api_base") or "").rstrip("/")
@@ -1080,7 +1437,7 @@ def _build_request(prompt: str, model: str, use_think_flag: bool,
             "messages": [{"role": "user", "content": content}],
             "stream": False,
             "temperature": CFG.get("temperature", 0.0),
-            "max_tokens": int(CFG.get("cloud_max_tokens", 256)),
+            "max_tokens": cap,
             "stop": stop,
         }
         return base, body, headers
@@ -1094,7 +1451,7 @@ def _build_request(prompt: str, model: str, use_think_flag: bool,
         "options": {
             "temperature": CFG.get("temperature", 0.0),
             "num_ctx": CFG.get("num_ctx", 4096),
-            "num_predict": CFG.get("num_predict", 256),
+            "num_predict": int(max_tokens or CFG.get("num_predict", 1024)),
             "seed": CFG.get("seed", 42),
             "stop": stop,
         },
@@ -1152,7 +1509,8 @@ def _boost_tokens() -> bool:
 
 def call_model(prompt: str, deadline: float | None = None,
                images: list[str] | None = None,
-               preferred_model: str | None = None) -> tuple[str, str, float]:
+               preferred_model: str | None = None,
+               max_tokens: int | None = None) -> tuple[str, str, float]:
     """
     返回 (清洗后答案, 使用的模型, 推理耗时)。失败抛异常。
     deadline: 绝对时间戳，整题预算的截止点。每次尝试的超时都会按剩余时间收缩，
@@ -1185,8 +1543,9 @@ def call_model(prompt: str, deadline: float | None = None,
             left_attempts = len(attempts) - idx
             per_timeout = min(timeout, max(3.0, remain / left_attempts * 1.5))
         try:
-            url, body, headers = _build_request(prompt, m, use_think, images)
-            r = requests.post(url, json=body, headers=headers, timeout=per_timeout)
+            url, body, headers = _build_request(prompt, m, use_think, images,
+                                                max_tokens=max_tokens)
+            r = _SESSION.post(url, json=body, headers=headers, timeout=per_timeout)
             if r.status_code >= 400:
                 if r.status_code == 429:
                     last_err = RuntimeError(
@@ -1209,10 +1568,11 @@ def call_model(prompt: str, deadline: float | None = None,
                              body.get("max_tokens") or CFG.get("cloud_max_tokens"))
                     if _boost_tokens():
                         try:
-                            url2, body2, headers2 = _build_request(prompt, m, use_think, images)
+                            url2, body2, headers2 = _build_request(
+                                prompt, m, use_think, images, max_tokens=max_tokens)
                             remain2 = (deadline - time.time()) if deadline else 30
                             if remain2 > 5:
-                                r2 = requests.post(url2, json=body2, headers=headers2,
+                                r2 = _SESSION.post(url2, json=body2, headers=headers2,
                                                    timeout=max(3.0, remain2))
                                 if r2.status_code < 400:
                                     content, think = _extract_text(r2.json())
@@ -1251,7 +1611,51 @@ def call_model(prompt: str, deadline: float | None = None,
             last_err = RuntimeError(str(e))
             log.warning("模型调用异常: %s", e)
 
+    # ---- v1.3 跨后端兜底：云端彻底不可用时切本地 Ollama ----
+    # 只有当前后端是云端、且配置开关打开、剩余预算够 5s 才尝试。
+    if (CFG.get("local_fallback", True)
+            and (CFG.get("backend") or "").lower() == "openai"
+            and (deadline is None or (deadline - time.time()) > 5)):
+        try:
+            ans2, m2, cost2 = _call_local_fallback(prompt, images, deadline)
+            if ans2:
+                log.warning("云端不可用（%s），已切本地 Ollama 兜底（%s）", last_err, m2)
+                return ans2, m2, cost2
+        except Exception as e:
+            log.warning("本地兜底也失败：%s", e)
+
     raise last_err or RuntimeError("未知错误")
+
+
+def _call_local_fallback(prompt: str, images: list[str] | None,
+                         deadline: float | None) -> tuple[str, str, float]:
+    """直接打本地 Ollama 的 /api/generate，绕过 CFG.backend。
+    用于云端超时/限流/断网时兜底，响应里 route 会被标成 fallback-local。"""
+    base = (CFG.get("local_fallback_url") or "http://127.0.0.1:11434").rstrip("/")
+    model = (CFG.get("local_fallback_model") or "qwen2.5:7b-instruct").strip()
+    body = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": CFG.get("temperature", 0.0),
+            "num_predict": int(CFG.get("num_predict", 1024)),
+            "num_ctx": CFG.get("num_ctx", 4096),
+            "seed": CFG.get("seed", 42),
+        },
+    }
+    if images:
+        body["images"] = [_norm_image(i)[1] for i in images[:4]]
+    remain = (deadline - time.time()) if deadline else 60
+    t0 = time.time()
+    r = _SESSION.post(f"{base}/api/generate", json=body,
+                      timeout=max(5.0, min(60.0, remain)))
+    r.raise_for_status()
+    data = r.json() or {}
+    ans = clean_answer(data.get("response") or "") or clean_answer(data.get("thinking") or "")
+    if not ans:
+        raise RuntimeError("本地兜底模型输出为空")
+    return ans, f"{model}（本地兜底）", time.time() - t0
 
 
 # --------------------------------------------------------------------------- #
@@ -1266,6 +1670,9 @@ def _qlog(text, limit: int = 24) -> str:
 
 
 def _record_answer(result: dict, cached: bool):
+    # 顺手沉淀历史（题库自动建库的数据来源）；失败不影响答题
+    if not cached:
+        append_history(result)
     with ANSWER_LOCK:
         STATS["total"] += 1
         if cached:
@@ -1276,14 +1683,31 @@ def _record_answer(result: dict, cached: bool):
             STATS["fail"] += 1
         ANSWER_RING.append({
             "t": time.strftime("%H:%M:%S"),
-            "q": (result.get("question") or "")[:60],
+            # 存完整题干（供订正/答错标记还原 q_key，不截断）
+            "q": result.get("question") or "",
             "a": (result.get("answer") or "")[:40],
             "match": result.get("match") or "-",
             "cached": cached,
             "ok": bool(result.get("success")),
             "cost": result.get("cost"),
             "pace": result.get("pace_wait_ms"),
+            "route": result.get("route") or "",
+            "verify": result.get("verify") or "",
+            "ms": int(result.get("ms") or float(result.get("total") or 0) * 1000),
+            "hid": result.get("_hid"),
+            # 带字母的选项文本，供控制台「一键订正」还原 q_key
+            "opts": "\n".join(
+                f"{l}. {t}" for l, t in
+                zip(result.get("letters") or [], result.get("options") or [])),
         })
+    # v1.3：逐次指标落库，用于 p50/p95 与来源分布
+    if STORE is not None:
+        try:
+            STORE.metric_add("qa", result.get("route") or "text",
+                             float(result.get("ms") or float(result.get("total") or 0) * 1000),
+                             bool(result.get("success")), bool(cached))
+        except Exception:
+            pass
 
 
 def _letters_of(final: str, opts: list[dict]) -> str:
@@ -1322,6 +1746,19 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
                     suggestion: str = "") -> dict:
     total_t0 = time.time()
     images = images or []
+
+    # ---- v1.3 图片预处理：长边 1280 + 锐化（灰度/降噪可选，默认关）----
+    # 手机截图动辄 3~4MB，缩放后既省 token 又快；灰度默认关是因为
+    # 图表、地图、化学试剂的颜色本身就是解题信息。
+    if images and CFG.get("preprocess_image", True) and jy_prep is not None:
+        try:
+            images = [jy_prep.preprocess_image(
+                im, int(CFG.get("image_max_side", 1280)),
+                bool(CFG.get("image_grayscale", False)),
+                bool(CFG.get("image_denoise", False))) for im in images]
+        except Exception as e:
+            log.debug("图片预处理跳过：%s", e)
+
     opts = split_options(options_text)
 
     # ---- 第 0 优先级：人工订正 > 导入题库（命中不耗模型、不受换模型影响） ----
@@ -1337,10 +1774,38 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
             "match": form, "note": f"来源：{bank_src}", "model": bank_src,
             "has_images": False, "route": "bank", "cost": 0,
             "pace_wait_ms": round(waited), "total": round(time.time() - total_t0, 2),
+            "ms": round((time.time() - total_t0) * 1000, 1),
             "cached": False, "success": bool(final),
         }
         log.info("Q: %s | A: %s (%s 命中, 节律%.0fms)",
                  _qlog(title), _qlog(final, 30), bank_src, waited)
+        _record_answer(result, cached=False)
+        return result
+
+    # ---- 第 1 优先级：相似题检索（RAG）----
+    # 1) 相似度 ≥ rag_direct：直接采用，不问模型（~5ms）
+    # 2) 落在 rag_inject~rag_direct：作为参考注入提示词
+    rag_hit, rag_ref = (None, "")
+    if not images:
+        try:
+            rag_hit, rag_ref = rag_lookup(title, opts, options_text)
+        except Exception as e:
+            log.debug("RAG 跳过：%s", e)
+    if rag_hit:
+        waited = pace_gate(True)
+        result = {
+            "question": title, "answer": rag_hit["answer"],
+            "raw_answer": rag_hit["raw"], "options": [o["text"] for o in opts],
+            "letters": [o["letter"] for o in opts], "match": rag_hit["form"],
+            "note": f"相似题命中 {rag_hit['score']:.2f}：{rag_hit['note']}",
+            "model": "rag", "has_images": False, "route": "rag", "cost": 0,
+            "pace_wait_ms": round(waited),
+            "total": round(time.time() - total_t0, 2),
+            "ms": round((time.time() - total_t0) * 1000, 1),
+            "cached": False, "success": bool(rag_hit["answer"]), "verify": "",
+        }
+        log.info("Q: %s | A: %s (相似题 %.2f 命中, 节律%.0fms)",
+                 _qlog(title), _qlog(rag_hit["answer"], 30), rag_hit["score"], waited)
         _record_answer(result, cached=False)
         return result
 
@@ -1356,6 +1821,15 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
     cache_key = f"{qtype}|{flat_title}|{flat_opts}{img_sig}{route_sig}"
 
     hit = CACHE.get(cache_key)
+    # v1.3：L1 未命中时查 SQLite（L2），重启后仍能秒回
+    if hit is None and CFG.get("cache_sqlite", True) and STORE is not None:
+        try:
+            hit = STORE.cache_get(cache_key,
+                                  float(CFG.get("cache_ttl_hours", 168)) * 3600)
+            if hit:
+                CACHE.set(cache_key, hit)
+        except Exception as e:
+            log.debug("L2 缓存读取失败：%s", e)
     if hit:
         # 缓存虽然秒回，也要遵守节律：否则同一道题 2ms 就出答案，一眼就是机器
         waited = pace_gate(CFG.get("delay_on_cache", True))
@@ -1372,9 +1846,38 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
             "error": "队列已满或等待超时", "cached": False,
         }
     try:
-        prompt = build_prompt(title, opts, qtype,
-                              preset=CFG.get("prompt_preset", "default"),
-                              cot=bool(CFG.get("cot_mode")))
+        # ---- v1.3 前置文本清洗（只作用于送模型的内容，不改题库 key）----
+        q_for_model = title
+        if CFG.get("preprocess_text", True) and jy_prep is not None:
+            try:
+                q_for_model = jy_prep.clean_text(title) or title
+            except Exception:
+                q_for_model = title
+
+        # ---- 学科软识别：用户没手动选预设时，按关键词补一个 ----
+        preset = CFG.get("prompt_preset", "default") or "default"
+        if preset == "default" and jy_prep is not None:
+            try:
+                guess = jy_prep.detect_subject(q_for_model, options_text)
+                if guess:
+                    preset = guess
+                    log.debug("学科软识别：%s", guess)
+            except Exception:
+                pass
+
+        # ---- 难度判定 → 自动 CoT（多选/长题干/计算题才开）----
+        complex_q = False
+        if jy_prep is not None:
+            try:
+                complex_q = jy_prep.is_complex(q_for_model, options_text, qtype)
+            except Exception:
+                complex_q = False
+        use_cot = bool(CFG.get("cot_mode")) or (bool(CFG.get("auto_cot", True)) and complex_q)
+
+        prompt = build_prompt(q_for_model, opts, qtype, preset=preset, cot=use_cot)
+        # 相似题参考放在最前，不破坏「答案：」结尾的结构
+        if rag_ref:
+            prompt = rag_ref + "\n" + prompt
         if suggestion:
             # OCS 5.x 图片题附带的文字提示（如网页里题目周边文本），拼进题干帮助理解
             prompt = f"{prompt}\n【题目周边提示】\n{suggestion}\n答案："
@@ -1384,11 +1887,46 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
                       else "code" if (not images and route_model == (CFG.get("code_model") or CFG.get("model"))
                                       and is_code_question(title, options_text))
                       else "text" if not images else "image-fallback")
+        max_tok = int(CFG.get("cloud_max_tokens", 512))
         raw_ans, model, cost = call_model(
             prompt, deadline=total_t0 + budget,
-            images=images, preferred_model=route_model,
+            images=images, preferred_model=route_model, max_tokens=max_tok,
         )
+
+        # ---- v1.3 答案自检：越界字母/空答案/多选漏选，重答一次 ----
+        check_note = ""
+        if jy_check is not None and CFG.get("self_check", True) and opts and not images:
+            try:
+                chk = jy_check.check(raw_ans, opts, qtype, q_for_model)
+                if chk["status"] == "fixed":
+                    raw_ans = chk["answer"]
+                    check_note = chk["reason"]
+                    log.info("答案自检已修正：%s", chk["reason"])
+                elif chk["status"] == "retry":
+                    remain = total_t0 + budget - time.time()
+                    if remain > 8:
+                        log.info("答案自检未通过（%s），重答一次", chk["reason"])
+                        p2 = jy_check.retry_prompt(prompt, chk["reason"], opts)
+                        try:
+                            raw2, m2, c2 = call_model(
+                                p2, deadline=total_t0 + budget, images=images,
+                                preferred_model=route_model, max_tokens=max_tok)
+                            cost += c2
+                            chk2 = jy_check.check(raw2, opts, qtype, q_for_model)
+                            if chk2["status"] != "retry" and raw2:
+                                raw_ans, model = raw2, m2
+                                check_note = "自检重答（" + chk["reason"] + "）"
+                                log.info("自检重答成功（%s）", m2)
+                        except Exception as e:
+                            log.info("自检重答失败：%s", e)
+                    else:
+                        check_note = "预算不足，跳过自检重答"
+            except Exception as e:
+                log.debug("自检异常（忽略）：%s", e)
+
         final, form, note = match_option(raw_ans, opts)
+        if check_note:
+            note = (note + "；" if note else "") + check_note
         # 路由模型没能出答案时，明确提示实际兜底情况（#5）
         if final and route_model != model:
             note = (note + "；" if note else "") + f"路由模型 {route_model} 未成功，由 {model} 兜底"
@@ -1461,12 +1999,19 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
             "cost": round(cost, 2),
             "pace_wait_ms": round(waited),
             "total": round(time.time() - total_t0, 2),
+            "ms": round((time.time() - total_t0) * 1000, 1),
             "cached": False,
             "verify": verify,
             "success": bool(final),
         }
         if final:
             CACHE.set(cache_key, result)
+            # v1.3：写穿到 SQLite（L2），重启后仍能命中
+            if CFG.get("cache_sqlite", True) and STORE is not None:
+                try:
+                    STORE.cache_put(cache_key, result)
+                except Exception as e:
+                    log.debug("L2 缓存写入失败：%s", e)
         _record_answer(result, cached=False)
         log.info(
             "Q: %s | A: %s (%s/%s, %s, 推理%.1fs + 节律%.0fms)%s",
@@ -1632,6 +2177,19 @@ def index():
     return CONSOLE_HTML
 
 
+def _lan_ip() -> str:
+    """探测局域网 IP（不实际发包，UDP connect 只影响路由表）。"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5)
+        s.connect(("223.5.5.5", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return ""
+
+
 @app.route("/api/status", methods=["GET"])
 def api_status():
     """控制台轮询：状态 + 统计 + 最近答题 + 增量日志。"""
@@ -1658,7 +2216,284 @@ def api_status():
         "log_seq": seq,
         "queue_waiting": _WAITING,
         "cache_size": len(CACHE),
+        # ---- v1.3 ----
+        "tier": (jy_tiers.detect_tier(CFG) if jy_tiers else ""),
+        "store": store_stats(),
+        "rag": {"enabled": bool(CFG.get("rag_enable")), "docs": RAG_STATE["docs"],
+                "backend": RAG_STATE["backend"], "error": RAG_STATE["error"]},
+        "metrics": (STORE.metrics_summary(24) if STORE is not None else {}),
+        # ---- v1.4 ----
+        "lan_ip": _lan_ip(),
+        "auth_token": CFG.get("auth_token") or "",
     })
+
+
+@app.route("/api/metrics", methods=["GET"])
+def api_metrics():
+    hours = 24.0
+    try:
+        hours = float(request.args.get("hours", 24))
+    except Exception:
+        pass
+    out = {"store": store_stats(), "rag": RAG_STATE,
+           "tier": (jy_tiers.detect_tier(CFG) if jy_tiers else ""),
+           "stats": dict(STATS)}
+    if STORE is not None:
+        try:
+            out["summary"] = STORE.metrics_summary(hours)
+        except Exception as e:
+            out["summary"] = {"error": str(e)}
+    return jsonify(out)
+
+
+@app.route("/api/tiers", methods=["GET"])
+def api_tiers():
+    tiers = jy_tiers.summarize() if jy_tiers else []
+    return jsonify({"tiers": tiers,
+                    "current": (jy_tiers.detect_tier(CFG) if jy_tiers else ""),
+                    "config": {k: CFG.get(k) for k in
+                               ("verify_mode", "cot_mode", "cloud_max_tokens",
+                                "delay_min_ms", "delay_max_ms", "rag_enable",
+                                "answer_budget", "request_timeout")}})
+
+
+@app.route("/api/tier", methods=["POST"])
+def api_tier():
+    name = ((request.get_json(silent=True) or {}).get("tier") or "").strip()
+    if not jy_tiers:
+        return jsonify({"ok": False, "message": "jy_tiers 未加载"}), 500
+    ok, msg = jy_tiers.apply_tier(CFG, name)
+    if not ok:
+        return jsonify({"ok": False, "message": msg}), 400
+    # 落盘（save_config 会校验并热更新 CFG，同时写回 config.json）
+    vals = dict(jy_tiers.TIERS[name]["values"])
+    vals["tier"] = name
+    saved, smsg = save_config(vals)
+    if not saved:
+        return jsonify({"ok": False, "message": smsg}), 400
+    log.info("档位切换 → %s", name)
+    return jsonify({"ok": True, "message": msg, "tier": name,
+                    "config": {k: CFG.get(k) for k in jy_tiers.TIERS[name]["values"]}})
+
+
+@app.route("/api/rag", methods=["GET"])
+def api_rag():
+    return jsonify({"enabled": bool(CFG.get("rag_enable")),
+                    "docs": RAG_STATE["docs"], "backend": RAG_STATE["backend"],
+                    "error": RAG_STATE["error"],
+                    "direct": CFG.get("rag_direct"), "inject": CFG.get("rag_inject"),
+                    "top_k": CFG.get("rag_top_k")})
+
+
+@app.route("/api/rag/rebuild", methods=["POST"])
+def api_rag_rebuild():
+    info = rag_rebuild(force=True)
+    return jsonify({"ok": not info.get("error"), **info})
+
+
+@app.route("/api/export/config", methods=["GET"])
+def api_export_config():
+    """导出配置（api_key 打码），用于换电脑迁移。"""
+    safe = dict(CFG)
+    if safe.get("api_key"):
+        safe["api_key"] = "***"
+    safe.pop("host", None)
+    body = json.dumps({"version": APP_VERSION, "config": safe},
+                      ensure_ascii=False, indent=2).encode("utf-8")
+    buf = io.BytesIO(body)
+    return send_file(buf, mimetype="application/json", as_attachment=True,
+                     download_name="jy-relay-config.json")
+
+
+@app.route("/api/export/diagnose", methods=["GET"])
+def api_export_diagnose():
+    """诊断包：脱敏配置 + 最近日志 + 环境 + 指标。出问题发这一个 zip 就够。"""
+    safe = dict(CFG)
+    if safe.get("api_key"):
+        safe["api_key"] = "***"
+    try:
+        health = diagnose()
+    except Exception as e:
+        health = {"error": str(e)}
+    env = {
+        "version": APP_VERSION,
+        "python": sys.version.split()[0],
+        "platform": sys.platform,
+        "frozen": bool(getattr(sys, "frozen", False)),
+        "base_dir": BASE_DIR,
+        "store": store_stats(),
+        "rag": RAG_STATE,
+        "stats": dict(STATS),
+    }
+    logs = ""
+    try:
+        if os.path.exists(LOG_PATH):
+            with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
+                logs = "".join(f.readlines()[-800:])
+    except Exception:
+        pass
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("config.json", json.dumps(safe, ensure_ascii=False, indent=2))
+        z.writestr("env.json", json.dumps(env, ensure_ascii=False, indent=2))
+        z.writestr("health.json", json.dumps(health, ensure_ascii=False, indent=2))
+        z.writestr("relay.log", logs or "(无日志)")
+        if STORE is not None:
+            try:
+                z.writestr("metrics.json",
+                           json.dumps(STORE.metrics_summary(72), ensure_ascii=False, indent=2))
+            except Exception:
+                pass
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name="jy-relay-diagnose.zip")
+
+
+@app.route("/api/history", methods=["GET"])
+def api_history():
+    """答题流（控制台总览用），带订正入口所需的信息。"""
+    try:
+        limit = int(request.args.get("limit", 50))
+    except Exception:
+        limit = 50
+    if STORE is None:
+        return jsonify({"items": []})
+    try:
+        return jsonify({"items": STORE.history_recent(limit)})
+    except Exception as e:
+        return jsonify({"items": [], "error": str(e)})
+
+
+# ---------------- v1.4：候选入库 / 抽样核对 / 答错标记 ----------------
+
+@app.route("/api/bank/candidates", methods=["GET"])
+def api_bank_candidates():
+    """待人工确认入库的候选题（模型真实答过、未经确认的）。"""
+    if STORE is None:
+        return jsonify({"items": [], "count": 0})
+    try:
+        items = STORE.history_candidates(200)
+        return jsonify({"items": items, "count": len(items)})
+    except Exception as e:
+        return jsonify({"items": [], "count": 0, "error": str(e)})
+
+
+@app.route("/api/bank/candidates", methods=["POST"])
+def api_bank_candidates_apply():
+    """批量确认入库 / 丢弃候选题。body: {ids:[...], action:"keep"|"discard"}"""
+    data = request.get_json(silent=True) or {}
+    ids = [i for i in (data.get("ids") or []) if str(i).strip()]
+    action = data.get("action")
+    if not ids or action not in ("keep", "discard"):
+        return jsonify({"ok": False, "message": "需要 ids 与 action(keep|discard)"}), 400
+    if STORE is None:
+        return jsonify({"ok": False, "message": "SQLite 存储未启用"}), 400
+    kept = 0
+    if action == "keep":
+        hist = {h["id"]: h for h in STORE.history_candidates(1000)}
+        for i in ids:
+            h = hist.get(int(i))
+            if not h:
+                continue
+            letters = [chr(65 + n) for n in range(len(h.get("opts") or []))]
+            options_text = "\n".join(
+                f"{l}. {t}" for l, t in zip(letters, h.get("opts") or []))
+            key = q_key(h["q"], options_text)
+            if not key:
+                continue
+            STORE.bank_upsert(key, {
+                "question": h["q"], "options": h.get("opts") or [],
+                "qtype": "multiple" if len(re.sub(r"[^A-Ha-h]", "", h["a"] or "")) > 1 else "single",
+                "answer": h["a"], "src": "candidate", "verified": False,
+                "ts": time.time(), "hits": 0,
+            })
+            BANK[key] = {"answer": h["a"], "options": h.get("opts") or [],
+                         "question": h["q"],
+                         "qtype": "multiple" if len(re.sub(r"[^A-Ha-h]", "", h["a"] or "")) > 1 else "single",
+                         "src": "candidate", "verified": False, "ts": time.time(), "hits": 0}
+            kept += 1
+    n = STORE.history_set_status(ids, "kept" if action == "keep" else "discarded")
+    if action == "keep" and kept:
+        # 同题干的其余未处理历史一并标记，避免候选区反复出现同一题
+        try:
+            keep_qs = [h["q"] for h in hist.values()
+                       if int(h["id"]) in [int(i) for i in ids]]
+            for h in STORE.history_candidates(2000):
+                if h["q"] in keep_qs:
+                    STORE.history_set_status([h["id"]], "kept")
+        except Exception:
+            pass
+    return jsonify({"ok": True, "processed": n, "kept": kept,
+                    "message": ("已入库 %d 条" % kept) if action == "keep" else "已丢弃 %d 条" % n})
+
+
+@app.route("/api/quiz/sample", methods=["GET"])
+def api_quiz_sample():
+    """抽最近 n 条未核对过的题，供人工判断对错。"""
+    try:
+        n = min(int(request.args.get("n", 30)), 100)
+    except Exception:
+        n = 30
+    if STORE is None:
+        return jsonify({"items": []})
+    return jsonify({"items": STORE.quiz_sample(n)})
+
+
+@app.route("/api/quiz/mark", methods=["POST"])
+def api_quiz_mark():
+    """回填对错。body: {results:{hist_id:true/false}, src:"quiz"|"thumb"} 或 {hid, correct}"""
+    data = request.get_json(silent=True) or {}
+    if STORE is None:
+        return jsonify({"ok": False, "message": "SQLite 存储未启用"}), 400
+    src = "thumb" if data.get("src") == "thumb" else "quiz"
+    results = data.get("results")
+    if isinstance(results, dict) and results:
+        for k, v in results.items():
+            try:
+                STORE.quiz_mark(int(k), bool(v), src)
+            except Exception:
+                pass
+        return jsonify({"ok": True, "marked": len(results)})
+    try:
+        hid = int(data.get("hid"))
+    except Exception:
+        return jsonify({"ok": False, "message": "缺少 hid 或 results"}), 400
+    STORE.quiz_mark(hid, bool(data.get("correct")), src)
+    return jsonify({"ok": True, "marked": 1})
+
+
+@app.route("/api/quiz/stats", methods=["GET"])
+def api_quiz_stats():
+    if STORE is None:
+        return jsonify({"total": 0, "acc": None})
+    try:
+        return jsonify(STORE.quiz_stats(14))
+    except Exception as e:
+        return jsonify({"total": 0, "acc": None, "error": str(e)})
+
+
+@app.route("/api/config/import", methods=["POST"])
+def api_config_import():
+    """导入 .jyconfig（脱敏配置包）。api_key 一律不接受，防止把别人的 Key 带过来。"""
+    data = request.get_json(silent=True) or {}
+    cfg = data.get("config")
+    if not isinstance(cfg, dict) or not cfg:
+        return jsonify({"ok": False, "message": "缺少 config 字段或为空"}), 400
+    applied, skipped = [], []
+    for k, v in cfg.items():
+        if k == "api_key":
+            skipped.append(k)
+            continue
+        if k in EDITABLE_FIELDS:
+            applied.append(k)
+    ok, msg = save_config({k: cfg[k] for k in applied})
+    if not ok:
+        return jsonify({"ok": False, "message": msg}), 400
+    skipped = [k for k in cfg if k == "api_key"]
+    log.info("导入配置：%d 项生效（跳过 %s）", len(applied), ",".join(skipped) or "无")
+    return jsonify({"ok": True, "applied": applied, "skipped": skipped,
+                    "message": f"已导入 {len(applied)} 项配置" +
+                               ("；api_key 出于安全不接受导入，请手动填写" if skipped else "")})
 
 
 @app.route("/api/config", methods=["GET"])
@@ -1688,6 +2523,20 @@ def api_config_post():
 
 # --------------------------- 题库与人工订正 API --------------------------- #
 
+def _rag_rebuild_async():
+    """题库变化后后台重建索引，不阻塞导入接口。"""
+    if not CFG.get("rag_enable") or RAG is None:
+        return
+
+    def _work():
+        try:
+            rag_rebuild(force=True)
+        except Exception as e:
+            log.debug("后台重建 RAG 失败：%s", e)
+
+    threading.Thread(target=_work, daemon=True).start()
+
+
 @app.route("/api/bank", methods=["GET"])
 def api_bank_get():
     return jsonify({
@@ -1695,6 +2544,8 @@ def api_bank_get():
         "count": len(BANK),
         "corrections": len(CORRECTIONS),
         "sample": list(BANK.values())[:3],
+        "store": store_stats(),
+        "rag": RAG_STATE,
     })
 
 
@@ -1705,6 +2556,7 @@ def api_bank_import():
     if not text:
         return jsonify({"ok": False, "message": "text 为空"}), 400
     added, updated, errors = import_bank(text)
+    _rag_rebuild_async()
     return jsonify({
         "ok": True, "added": added, "updated": updated,
         "errors": errors[:10], "total": len(BANK),
@@ -1717,8 +2569,34 @@ def api_bank_import():
 def api_bank_clear():
     with _KB_LOCK:
         BANK.clear()
-        _save_json_map(BANK_PATH, BANK)
+        if STORE is not None:
+            try:
+                STORE.bank_clear()
+            except Exception as e:
+                log.warning("清空题库失败：%s", e)
+        else:
+            _save_json_map(BANK_PATH, BANK)
+    RAG_STATE.update({"docs": 0, "sig": "", "backend": ""})
     return jsonify({"ok": True, "message": "题库已清空"})
+
+
+@app.route("/api/bank/auto", methods=["POST"])
+def api_bank_auto():
+    """把历史作答沉淀成题库。body: {"force": false}"""
+    data = request.get_json(silent=True) or {}
+    res = build_bank_from_history(force=bool(data.get("force")))
+    if res.get("error"):
+        return jsonify({"ok": False, "message": res["error"], **res})
+    res["ok"] = True
+    res["bank_total"] = len(BANK)
+    res["message"] = (
+        f"自动建库完成：新增 {res['added']} 条，更新 {res['updated']} 条，"
+        f"跳过 {res['skipped']} 条（已存在），"
+        f"{res['conflict']} 条因答案不一致被过滤"
+    )
+    if res["added"]:
+        log.info("自动建库：新增 %d 条（累计 %d 条）", res["added"], len(BANK))
+    return jsonify(res)
 
 
 @app.route("/api/corrections", methods=["GET"])
@@ -2249,6 +3127,10 @@ def main():
 
     if not args.no_warmup:
         threading.Thread(target=warmup, daemon=True).start()
+
+    # v1.3：相似题索引（有题库才建，后台进行，不拖慢启动）
+    if CFG.get("rag_enable") and RAG is not None and BANK:
+        threading.Thread(target=lambda: rag_rebuild(force=False), daemon=True).start()
 
     if CFG.get("auto_open_browser", True) and not args.no_browser:
         def _open():

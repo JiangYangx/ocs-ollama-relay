@@ -40,6 +40,30 @@ h1{font-size:18px;font-weight:650;letter-spacing:.2px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dot.busy{background:var(--acc);animation:pulse 1s infinite}
 
+/* ---------- v1.4 弹层 / 主题 / 移动端 ---------- */
+.modal-mask{position:fixed;inset:0;background:rgba(6,10,18,.72);z-index:50;
+  display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:var(--card,#141b28);border:1px solid var(--line,#2a3346);border-radius:14px;
+  padding:20px;max-width:720px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 18px 60px rgba(0,0,0,.5)}
+.modal h3{margin:0 0 10px;font-size:16px}
+.modal .close{float:right;cursor:pointer;color:#8b96a8;font-size:18px;background:none;border:none}
+.qrow{display:flex;gap:10px;align-items:flex-start;padding:10px 8px;border-bottom:1px solid var(--line,#2a3346);border-radius:6px}
+.qrow:hover{background:rgba(255,255,255,.03)}
+.qrow .qt{flex:1;font-size:13px;line-height:1.5}
+.qrow .qa{font-size:13px;color:#ffc65c;min-width:52px}
+body.light{--bg:#eef1f6;--card:#ffffff;--line:#dbe1ea;--text:#1c2430;--dim:#5b6675;--dim2:#7a8595;
+  --accent:#2563eb;--accent2:#1d4ed8}
+body.light header, body.light .tierbar{background:#ffffff}
+body.light .stat, body.light .rec, body.light table tr{color:#1c2430}
+@media (max-width:720px){
+  .grid{grid-template-columns:1fr !important}
+  header{flex-wrap:wrap;gap:8px;padding:10px 12px}
+  .tierbar{flex-wrap:wrap;gap:6px;padding:8px 10px}
+  .tb-kpi{display:none}
+  table{font-size:12px}
+  .modal{padding:14px}
+  .qrow{flex-direction:column;gap:4px}
+}
 /* ---------- 布局 ---------- */
 .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;align-items:start}
 .grid > *{min-width:0}   /* 防止表格/pre 等宽内容撑破移动端布局 */
@@ -196,6 +220,51 @@ a{color:var(--acc);text-decoration:none}
 .tipbar.ok{background:#10241a;border:1px solid #1e4a33;color:#6ee7a0}
 .tipbar.bad{background:#2a1313;border:1px solid #5c2020;color:#fca5a5}
 .tipbar.warn{background:#2a2010;border:1px solid #5c4218;color:#ffc65c}
+
+/* ---- v1.3 档位条 ---- */
+.tierbar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:linear-gradient(180deg,#151b27,#12161f);
+  border:1px solid var(--line);border-radius:12px;
+  padding:11px 14px;margin-bottom:16px;
+}
+.tierbar .tb-title{font-size:12px;color:var(--dim);font-weight:600;margin-right:2px}
+.tier{
+  border:1px solid var(--line);background:#1a2030;color:#aeb9cc;
+  border-radius:9px;padding:7px 14px;font-size:12.5px;cursor:pointer;
+  font-family:inherit;transition:.15s;font-weight:560;
+}
+.tier:hover{background:#212a3c;color:#dbe3ee}
+.tier.on{background:linear-gradient(180deg,#2c5cff,#1f47d8);border-color:#3f6bff;color:#fff;
+  box-shadow:0 2px 10px rgba(44,92,255,.35)}
+.tier[disabled]{opacity:.5;cursor:wait}
+.tb-meta{font-size:11.5px;color:var(--dim2);max-width:420px;line-height:1.5}
+.tb-kpi{display:flex;align-items:baseline;gap:5px;font-size:11px;color:var(--dim2);
+  background:#10141c;border:1px solid var(--line);border-radius:7px;padding:4px 9px}
+.tb-kpi b{font-size:13px;color:#cfe0ff;font-weight:650}
+
+/* ---- 来源徽章 ---- */
+.b-bank{background:#3a2a10;color:#ffc65c}
+.b-rag{background:#2a1a3d;color:#c084fc}
+.b-text{background:#1c2130;color:#9aa8bf}
+.b-img{background:#0f2f33;color:#5eead4}
+.b-fb{background:#3a1a1a;color:#fca5a5}
+
+/* ---- 答题流行内订正 ---- */
+.fixbtn{
+  border:1px solid var(--line);background:#1a2030;color:#8b96a8;
+  border-radius:6px;padding:2px 7px;font-size:11px;cursor:pointer;font-family:inherit;
+}
+.fixbtn:hover{color:#ffc65c;border-color:#5c4218;background:#2a2010}
+
+/* ---- 题库拖拽 ---- */
+.drop{
+  border:1.5px dashed #2f3a4d;border-radius:10px;padding:18px;
+  text-align:center;color:var(--dim);font-size:12.5px;transition:.15s;cursor:pointer;
+  background:#12161f;
+}
+.drop:hover,.drop.over{border-color:#4c8dff;background:#141b2b;color:#a9c4ff}
+
 </style>
 </head>
 <body>
@@ -222,7 +291,21 @@ a{color:var(--acc);text-decoration:none}
     <div class="pill"><span class="dot" id="d-srv"></span>服务 <b id="srv">检测中</b></div>
     <div class="pill"><span class="dot" id="d-ol"></span>Ollama <b id="ol">检测中</b></div>
     <div class="pill">模型 <b id="mdl">-</b></div>
+    <button class="btn ghost" id="btn-theme" title="切换明暗主题" style="margin-left:8px">🌙</button>
   </header>
+
+  <div class="tierbar" id="tierbar">
+    <div class="tb-title">运行档位</div>
+    <button class="tier" data-tier="speed">⚡ 极速刷题</button>
+    <button class="tier on" data-tier="balanced">⚖ 平衡日常</button>
+    <button class="tier" data-tier="accurate">🎯 高正确率</button>
+    <div class="tb-meta" id="tier-note">切换档位会一次性写入验证方式、CoT、token 上限与答题间隔</div>
+    <div class="spacer"></div>
+    <div class="tb-kpi"><span>p50</span><b id="k-p50">-</b></div>
+    <div class="tb-kpi"><span>p95</span><b id="k-p95">-</b></div>
+    <div class="tb-kpi"><span>命中率</span><b id="k-hit">-</b></div>
+    <button class="btn ghost" id="btn-quiz" title="抽最近几题人工核对对错，得到真实正确率" style="margin-left:10px">✅ 核对正确率</button>
+  </div>
 
   <div class="grid">
     <!-- 左栏 -->
@@ -234,6 +317,8 @@ a{color:var(--acc);text-decoration:none}
         <div class="stats">
           <div class="stat"><div class="k">已答题</div><div class="v" id="st-total">0</div></div>
           <div class="stat"><div class="k">成功</div><div class="v" id="st-ok" style="color:#4ade80">0</div></div>
+          <div class="stat"><div class="k">直接命中</div><div class="v" id="st-hit" style="color:#ffc65c">0%</div></div>
+          <div class="stat"><div class="k">平均耗时</div><div class="v" id="st-avg" style="color:#60a5fa">-</div></div>
           <div class="stat"><div class="k">缓存命中</div><div class="v" id="st-cache" style="color:#60a5fa">0</div></div>
           <div class="stat"><div class="k">失败</div><div class="v" id="st-fail" style="color:#f87171">0</div></div>
         </div>
@@ -251,8 +336,8 @@ a{color:var(--acc);text-decoration:none}
         <div class="ans-wrap">
           <table>
             <thead><tr><th style="width:64px">时间</th><th>题目</th><th style="width:110px">答案</th>
-            <th style="width:82px">方式</th><th style="width:60px">耗时</th></tr></thead>
-            <tbody id="ans-body"><tr><td colspan="5" class="hint" style="padding:16px 8px">暂无记录，发一条请求试试</td></tr></tbody>
+            <th style="width:76px">来源</th><th style="width:56px">耗时</th><th style="width:52px">订正</th></tr></thead>
+            <tbody id="ans-body"><tr><td colspan="6" class="hint" style="padding:16px 8px">暂无记录，发一条请求试试</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -283,8 +368,10 @@ a{color:var(--acc);text-decoration:none}
           <h3>💡 一键推荐</h3>
           <p>按你的使用场景点一下，自动填好后端地址、模型与推荐参数。</p>
           <div class="row">
-            <button class="btn primary" data-preset-models="zhipu">智谱免费（推荐）</button>
-            <button class="btn" data-preset-models="silicon">硅基流动免费</button>
+            <button class="btn primary" data-preset-models="zhipu">智谱（有免费档）</button>
+            <button class="btn" data-preset-models="silicon">硅基流动（有免费档）</button>
+            <button class="btn" data-preset-models="deepseek">DeepSeek</button>
+            <button class="btn" data-preset-models="doubao">豆包（火山方舟）</button>
             <button class="btn" data-preset-models="local">本地 Ollama</button>
           </div>
         </div>
@@ -294,7 +381,7 @@ a{color:var(--acc);text-decoration:none}
           <label>模型后端</label>
           <select id="f-backend">
             <option value="ollama">本地 Ollama（离线，不外传数据）</option>
-            <option value="openai">云端 OpenAI 兼容（智谱 / 硅基流动等）</option>
+            <option value="openai">云端 OpenAI 兼容（智谱 / 硅基 / DeepSeek / 豆包 等）</option>
           </select>
           <div class="tip">选云端需填下方 api_base 和 api_key；题目会发往云端服务器</div>
         </div>
@@ -383,6 +470,19 @@ a{color:var(--acc);text-decoration:none}
         <div class="warn-box" id="cot-warn" style="display:none">
           ⚠ <b>已开启 CoT</b>：思考型模型的推理过程会消耗大量 token。请确认「云端 token 上限」≥ 1024，否则正文可能被截空导致答案空白。
         </div>
+
+        <div class="field" style="margin-top:14px">
+          <label>图片题预处理</label>
+          <div class="row2">
+            <div class="field">
+              <label style="font-size:11px">长边缩放（px）</label>
+              <input type="number" id="f-imgside" min="480" max="4096" step="160">
+            </div>
+          </div>
+          <label class="switch"><input type="checkbox" id="f-imgpre"><span class="track"></span>发送前缩放并锐化（省 token、更快）</label>
+          <label class="switch"><input type="checkbox" id="f-imggray"><span class="track"></span>转灰度（扫描件/模糊图适用；图表彩色题勿开）</label>
+          <label class="switch"><input type="checkbox" id="f-imgdenoise"><span class="track"></span>降噪（更慢，仅在图很脏时开）</label>
+        </div>
         </div><!--/pane-acc-->
 
         <div class="pane" id="pane-adv">
@@ -414,6 +514,24 @@ a{color:var(--acc);text-decoration:none}
         <label class="switch"><input type="checkbox" id="f-delay"><span class="track"></span>启用节律延时</label>
         <label class="switch"><input type="checkbox" id="f-delaycache"><span class="track"></span>缓存命中时也延时</label>
         <label class="switch"><input type="checkbox" id="f-autobrowser"><span class="track"></span>启动时打开本页面</label>
+
+        <div class="field" style="margin-top:14px">
+          <label>配置迁移（换电脑用）</label>
+          <div class="row">
+            <button class="btn" id="btn-cfg-export">导出 .jyconfig</button>
+            <button class="btn" id="btn-cfg-import">导入 .jyconfig</button>
+            <input type="file" id="cfg-file" accept=".jyconfig,.json" style="display:none">
+          </div>
+          <div class="tip">导出文件不含 api_key，导入后需手动填 Key。api_key 一律不接受导入</div>
+        </div>
+        <div class="field">
+          <label>局域网共享</label>
+          <div class="row">
+            <button class="btn" id="btn-lanqr">手机扫码接入</button>
+            <span class="hint" id="lan-ip"></span>
+          </div>
+          <div class="tip">手机和电脑连同一 Wi-Fi；扫码打开控制台后复制接入配置。建议先设访问令牌</div>
+        </div>
         </div><!--/pane-adv-->
 
         <div class="mt" style="display:flex;align-items:center;border-top:1px solid var(--line);padding-top:14px">
@@ -425,10 +543,32 @@ a{color:var(--acc);text-decoration:none}
       <!-- ============ ③ 题库与订正 ============ -->
       <div class="pane" id="pane-bank">
         <div class="rec">
-          <h3>📚 题库优先 <span style="font-size:11px;color:var(--dim2);margin-left:auto" id="bank-sum">—</span></h3>
-          <p>导入历年题/作业题，命中直接返回、不消耗模型额度，正确率接近 100%。</p>
+          <h3>📥 候选题待确认 <span style="font-size:11px;color:var(--dim2);margin-left:auto" id="cand-sum">—</span></h3>
+          <p>模型答过的题先进入候选区，你确认后才进题库——防错题固化。答过多次且答案一致的优先。</p>
+          <div id="cand-list" style="max-height:260px;overflow:auto;display:none"></div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn primary" id="btn-cand-keep" style="display:none">✓ 收录选中</button>
+            <button class="btn ghost" id="btn-cand-discard" style="display:none">✗ 丢弃选中</button>
+            <button class="btn" id="btn-cand-refresh">刷新候选</button>
+            <span id="cand-msg" style="font-size:12px;color:var(--dim2)"></span>
+          </div>
         </div>
-        <div class="field">
+        <div class="rec">
+          <h3>♻️ 自动积累题库 <span style="font-size:11px;color:var(--dim2);margin-left:auto">越用越快</span></h3>
+          <p>答过的题会自动记进历史记录。点下面按钮把可信的作答沉淀成题库：
+             同一道题再出现就毫秒级命中，不调模型、不花额度，答案也不随模型波动。
+             答案前后不一致的题会被自动过滤，不会把偶发错误固化下来。</p>
+          <div class="row">
+            <button class="btn primary" id="btn-bank-auto">从历史记录建库</button>
+            <span id="auto-msg" style="font-size:12px;color:var(--dim2)"></span>
+          </div>
+        </div>
+        <div class="drop" id="bank-drop">
+          把 <b>.txt</b> / <b>.csv</b> / <b>.json</b> 文件拖到这里，或点击选择文件<br>
+          <span style="font-size:11.5px;color:var(--dim2)">txt 直接导入；csv 自动识别「题干 / 选项 / 答案」列；json 支持题库格式</span>
+        </div>
+        <input type="file" id="bank-file" accept=".txt,.csv,.md,.json" style="display:none">
+        <div class="field mt">
           <label>导入题库（题干 / A. 选项 / 答案：B 逐块粘贴，也支持单行「题干|A. xx|B. xx|答案：B」）</label>
           <textarea id="bank-text" rows="5" style="width:100%;background:#0d1420;color:#dbe4f0;border:1px solid #1d2a3d;border-radius:6px;padding:8px;font-size:13px" placeholder="中国的首都是哪里？
 A. 上海
@@ -440,6 +580,7 @@ C. 广州
           <button class="btn primary" id="btn-bank-import">导入题库</button>
           <button class="btn ghost" id="btn-bank-clear">清空题库</button>
           <span id="bank-msg"></span>
+          <span id="bank-sum" style="font-size:12px;color:var(--dim2);margin-left:auto">—</span>
         </div>
         <div class="field mt">
           <label>答错订正（从「最近答题」里把答错的题改成正确答案，永久生效）</label>
@@ -467,6 +608,77 @@ C. 广州
   </div>
 </div>
 
+<!-- ============ v1.4 弹层 ============ -->
+<div class="modal-mask" id="m-quiz" style="display:none">
+  <div class="modal">
+    <button class="close" onclick="uiClose('m-quiz')">✕</button>
+    <h3>✅ 核对正确率 <span style="font-size:12px;color:var(--dim2)">抽最近几题，人工判断对错 → 得到真实正确率</span></h3>
+    <div id="quiz-stats" style="font-size:13px;margin-bottom:10px;color:var(--dim2)"></div>
+    <div id="quiz-list" style="max-height:46vh;overflow:auto"></div>
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+      <button class="btn" id="btn-quiz-more">再抽 20 题</button>
+      <span class="hint" id="quiz-msg"></span>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="m-qr" style="display:none">
+  <div class="modal" style="max-width:420px;text-align:center">
+    <button class="close" onclick="uiClose('m-qr')">✕</button>
+    <h3>📱 手机扫码接入</h3>
+    <div id="qr-box" style="display:inline-block;background:#fff;padding:12px;border-radius:8px"></div>
+    <div class="hint" id="qr-url" style="margin-top:10px;word-break:break-all"></div>
+    <div class="hint" style="margin-top:6px">手机与电脑需在同一局域网；扫码后请在控制台复制「接入客户端」配置</div>
+  </div>
+</div>
+
+<div class="modal-mask" id="m-onboard" style="display:none">
+  <div class="modal" style="max-width:640px">
+    <h3>🚀 三步开始答题 <span style="font-size:12px;color:var(--dim2)">全程约 2 分钟</span></h3>
+    <div id="ob-steps">
+      <div class="ob-step" id="ob-1">
+        <h4 style="margin:8px 0">第 1 步 · 选模型服务</h4>
+        <p class="hint" style="margin:0 0 8px">没有免费额度的会提示注册充值；只想先试试就选智谱。</p>
+        <div class="row">
+          <button class="btn primary" data-preset-models="zhipu">智谱（有免费档）</button>
+          <button class="btn" data-preset-models="silicon">硅基流动（有免费档）</button>
+          <button class="btn" data-preset-models="deepseek">DeepSeek</button>
+          <button class="btn" data-preset-models="doubao">豆包（火山方舟）</button>
+          <button class="btn" data-preset-models="local">本地 Ollama</button>
+        </div>
+      </div>
+      <div class="ob-step" id="ob-2" style="display:none">
+        <h4 style="margin:8px 0">第 2 步 · 填 API Key 并测通</h4>
+        <div class="field"><label>API Key</label><input type="text" id="ob-key" placeholder="粘贴服务商给的 Key"></div>
+        <div class="row">
+          <button class="btn primary" id="ob-test">保存并测通</button>
+          <button class="btn ghost" id="ob-skip">稍后再配</button>
+          <span class="hint" id="ob-msg"></span>
+        </div>
+        <p class="hint" style="margin-top:8px">测通 = 自动保存 Key、拉取模型列表、并检查所选模型真实存在</p>
+      </div>
+      <div class="ob-step" id="ob-3" style="display:none">
+        <h4 style="margin:8px 0">✅ 完成！最后一步</h4>
+        <p class="hint" style="margin:0 0 8px">到「接入客户端」卡片复制配置，粘进答题客户端的「自定义接口」即可开始答题。</p>
+        <div class="row">
+          <button class="btn primary" id="ob-done">知道了，开始用</button>
+          <button class="btn ghost" id="ob-copy">复制接入配置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/**
+ * Minified by jsDelivr using Terser v5.37.0.
+ * Original file: /npm/qrcode-generator@1.4.4/qrcode.js
+ *
+ * Do NOT use SRI with dynamically generated files! More information: https://www.jsdelivr.com/using-sri-with-dynamic-files
+ */
+var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],f={},c=function(t,r){o=function(t){for(var r=new Array(t),e=0;e<t;e+=1){r[e]=new Array(t);for(var n=0;n<t;n+=1)r[e][n]=null}return r}(i=4*e+17),l(0,0),l(i-7,0),l(0,i-7),s(),h(),d(t,r),e>=7&&v(t),null==a&&(a=p(e,n,u)),w(a,r)},l=function(t,r){for(var e=-1;e<=7;e+=1)if(!(t+e<=-1||i<=t+e))for(var n=-1;n<=7;n+=1)r+n<=-1||i<=r+n||(o[t+e][r+n]=0<=e&&e<=6&&(0==n||6==n)||0<=n&&n<=6&&(0==e||6==e)||2<=e&&e<=4&&2<=n&&n<=4)},h=function(){for(var t=8;t<i-8;t+=1)null==o[t][6]&&(o[t][6]=t%2==0);for(var r=8;r<i-8;r+=1)null==o[6][r]&&(o[6][r]=r%2==0)},s=function(){for(var t=B.getPatternPosition(e),r=0;r<t.length;r+=1)for(var n=0;n<t.length;n+=1){var i=t[r],a=t[n];if(null==o[i][a])for(var u=-2;u<=2;u+=1)for(var f=-2;f<=2;f+=1)o[i+u][a+f]=-2==u||2==u||-2==f||2==f||0==u&&0==f}},v=function(t){for(var r=B.getBCHTypeNumber(e),n=0;n<18;n+=1){var a=!t&&1==(r>>n&1);o[Math.floor(n/3)][n%3+i-8-3]=a}for(n=0;n<18;n+=1){a=!t&&1==(r>>n&1);o[n%3+i-8-3][Math.floor(n/3)]=a}},d=function(t,r){for(var e=n<<3|r,a=B.getBCHTypeInfo(e),u=0;u<15;u+=1){var f=!t&&1==(a>>u&1);u<6?o[u][8]=f:u<8?o[u+1][8]=f:o[i-15+u][8]=f}for(u=0;u<15;u+=1){f=!t&&1==(a>>u&1);u<8?o[8][i-u-1]=f:u<9?o[8][15-u-1+1]=f:o[8][15-u-1]=f}o[i-8][8]=!t},w=function(t,r){for(var e=-1,n=i-1,a=7,u=0,f=B.getMaskFunction(r),c=i-1;c>0;c-=2)for(6==c&&(c-=1);;){for(var g=0;g<2;g+=1)if(null==o[n][c-g]){var l=!1;u<t.length&&(l=1==(t[u]>>>a&1)),f(n,c-g)&&(l=!l),o[n][c-g]=l,-1==(a-=1)&&(u+=1,a=7)}if((n+=e)<0||i<=n){n-=e,e=-e;break}}},p=function(t,r,e){for(var n=A.getRSBlocks(t,r),o=b(),i=0;i<e.length;i+=1){var a=e[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var u=0;for(i=0;i<n.length;i+=1)u+=n[i].dataCount;if(o.getLengthInBits()>8*u)throw"code length overflow. ("+o.getLengthInBits()+">"+8*u+")";for(o.getLengthInBits()+4<=8*u&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*u||(o.put(236,8),o.getLengthInBits()>=8*u));)o.put(17,8);return function(t,r){for(var e=0,n=0,o=0,i=new Array(r.length),a=new Array(r.length),u=0;u<r.length;u+=1){var f=r[u].dataCount,c=r[u].totalCount-f;n=Math.max(n,f),o=Math.max(o,c),i[u]=new Array(f);for(var g=0;g<i[u].length;g+=1)i[u][g]=255&t.getBuffer()[g+e];e+=f;var l=B.getErrorCorrectPolynomial(c),h=k(i[u],l.getLength()-1).mod(l);for(a[u]=new Array(l.getLength()-1),g=0;g<a[u].length;g+=1){var s=g+h.getLength()-a[u].length;a[u][g]=s>=0?h.getAt(s):0}}var v=0;for(g=0;g<r.length;g+=1)v+=r[g].totalCount;var d=new Array(v),w=0;for(g=0;g<n;g+=1)for(u=0;u<r.length;u+=1)g<i[u].length&&(d[w]=i[u][g],w+=1);for(g=0;g<o;g+=1)for(u=0;u<r.length;u+=1)g<a[u].length&&(d[w]=a[u][g],w+=1);return d}(o,n)};f.addData=function(t,r){var e=null;switch(r=r||"Byte"){case"Numeric":e=M(t);break;case"Alphanumeric":e=x(t);break;case"Byte":e=m(t);break;case"Kanji":e=L(t);break;default:throw"mode:"+r}u.push(e),a=null},f.isDark=function(t,r){if(t<0||i<=t||r<0||i<=r)throw t+","+r;return o[t][r]},f.getModuleCount=function(){return i},f.make=function(){if(e<1){for(var t=1;t<40;t++){for(var r=A.getRSBlocks(t,n),o=b(),i=0;i<u.length;i++){var a=u[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var g=0;for(i=0;i<r.length;i++)g+=r[i].dataCount;if(o.getLengthInBits()<=8*g)break}e=t}c(!1,function(){for(var t=0,r=0,e=0;e<8;e+=1){c(!0,e);var n=B.getLostPoint(f);(0==e||t>n)&&(t=n,r=e)}return r}())},f.createTableTag=function(t,r){t=t||2;var e="";e+='<table style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: "+(r=void 0===r?4*t:r)+"px;",e+='">',e+="<tbody>";for(var n=0;n<f.getModuleCount();n+=1){e+="<tr>";for(var o=0;o<f.getModuleCount();o+=1)e+='<td style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: 0px;",e+=" width: "+t+"px;",e+=" height: "+t+"px;",e+=" background-color: ",e+=f.isDark(n,o)?"#000000":"#ffffff",e+=";",e+='"/>';e+="</tr>"}return e+="</tbody>",e+="</table>"},f.createSvgTag=function(t,r,e,n){var o={};"object"==typeof arguments[0]&&(t=(o=arguments[0]).cellSize,r=o.margin,e=o.alt,n=o.title),t=t||2,r=void 0===r?4*t:r,(e="string"==typeof e?{text:e}:e||{}).text=e.text||null,e.id=e.text?e.id||"qrcode-description":null,(n="string"==typeof n?{text:n}:n||{}).text=n.text||null,n.id=n.text?n.id||"qrcode-title":null;var i,a,u,c,g=f.getModuleCount()*t+2*r,l="";for(c="l"+t+",0 0,"+t+" -"+t+",0 0,-"+t+"z ",l+='<svg version="1.1" xmlns="http://www.w3.org/2000/svg"',l+=o.scalable?"":' width="'+g+'px" height="'+g+'px"',l+=' viewBox="0 0 '+g+" "+g+'" ',l+=' preserveAspectRatio="xMinYMin meet"',l+=n.text||e.text?' role="img" aria-labelledby="'+y([n.id,e.id].join(" ").trim())+'"':"",l+=">",l+=n.text?'<title id="'+y(n.id)+'">'+y(n.text)+"</title>":"",l+=e.text?'<description id="'+y(e.id)+'">'+y(e.text)+"</description>":"",l+='<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>',l+='<path d="',a=0;a<f.getModuleCount();a+=1)for(u=a*t+r,i=0;i<f.getModuleCount();i+=1)f.isDark(a,i)&&(l+="M"+(i*t+r)+","+u+c);return l+='" stroke="transparent" fill="black"/>',l+="</svg>"},f.createDataURL=function(t,r){t=t||2,r=void 0===r?4*t:r;var e=f.getModuleCount()*t+2*r,n=r,o=e-r;return I(e,e,(function(r,e){if(n<=r&&r<o&&n<=e&&e<o){var i=Math.floor((r-n)/t),a=Math.floor((e-n)/t);return f.isDark(a,i)?0:1}return 1}))},f.createImgTag=function(t,r,e){t=t||2,r=void 0===r?4*t:r;var n=f.getModuleCount()*t+2*r,o="";return o+="<img",o+=' src="',o+=f.createDataURL(t,r),o+='"',o+=' width="',o+=n,o+='"',o+=' height="',o+=n,o+='"',e&&(o+=' alt="',o+=y(e),o+='"'),o+="/>"};var y=function(t){for(var r="",e=0;e<t.length;e+=1){var n=t.charAt(e);switch(n){case"<":r+="&lt;";break;case">":r+="&gt;";break;case"&":r+="&amp;";break;case'"':r+="&quot;";break;default:r+=n}}return r};return f.createASCII=function(t,r){if((t=t||1)<2)return function(t){t=void 0===t?2:t;var r,e,n,o,i,a=1*f.getModuleCount()+2*t,u=t,c=a-t,g={"██":"█","█ ":"▀"," █":"▄","  ":" "},l={"██":"▀","█ ":"▀"," █":" ","  ":" "},h="";for(r=0;r<a;r+=2){for(n=Math.floor((r-u)/1),o=Math.floor((r+1-u)/1),e=0;e<a;e+=1)i="█",u<=e&&e<c&&u<=r&&r<c&&f.isDark(n,Math.floor((e-u)/1))&&(i=" "),u<=e&&e<c&&u<=r+1&&r+1<c&&f.isDark(o,Math.floor((e-u)/1))?i+=" ":i+="█",h+=t<1&&r+1>=c?l[i]:g[i];h+="\n"}return a%2&&t>0?h.substring(0,h.length-a-1)+Array(a+1).join("▀"):h.substring(0,h.length-1)}(r);t-=1,r=void 0===r?2*t:r;var e,n,o,i,a=f.getModuleCount()*t+2*r,u=r,c=a-r,g=Array(t+1).join("██"),l=Array(t+1).join("  "),h="",s="";for(e=0;e<a;e+=1){for(o=Math.floor((e-u)/t),s="",n=0;n<a;n+=1)i=1,u<=n&&n<c&&u<=e&&e<c&&f.isDark(o,Math.floor((n-u)/t))&&(i=0),s+=i?g:l;for(o=0;o<t;o+=1)h+=s+"\n"}return h.substring(0,h.length-1)},f.renderTo2dContext=function(t,r){r=r||2;for(var e=f.getModuleCount(),n=0;n<e;n++)for(var o=0;o<e;o++)t.fillStyle=f.isDark(n,o)?"black":"white",t.fillRect(n*r,o*r,r,r)},f};t.stringToBytes=(t.stringToBytesFuncs={default:function(t){for(var r=[],e=0;e<t.length;e+=1){var n=t.charCodeAt(e);r.push(255&n)}return r}}).default,t.createStringToBytes=function(t,r){var e=function(){for(var e=S(t),n=function(){var t=e.read();if(-1==t)throw"eof";return t},o=0,i={};;){var a=e.read();if(-1==a)break;var u=n(),f=n()<<8|n();i[String.fromCharCode(a<<8|u)]=f,o+=1}if(o!=r)throw o+" != "+r;return i}(),n="?".charCodeAt(0);return function(t){for(var r=[],o=0;o<t.length;o+=1){var i=t.charCodeAt(o);if(i<128)r.push(i);else{var a=e[t.charAt(o)];"number"==typeof a?(255&a)==a?r.push(a):(r.push(a>>>8),r.push(255&a)):r.push(n)}}return r}};var r,e,n,o,i,a=1,u=2,f=4,c=8,g={L:1,M:0,Q:3,H:2},l=0,h=1,s=2,v=3,d=4,w=5,p=6,y=7,B=(r=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],e=1335,n=7973,i=function(t){for(var r=0;0!=t;)r+=1,t>>>=1;return r},(o={}).getBCHTypeInfo=function(t){for(var r=t<<10;i(r)-i(e)>=0;)r^=e<<i(r)-i(e);return 21522^(t<<10|r)},o.getBCHTypeNumber=function(t){for(var r=t<<12;i(r)-i(n)>=0;)r^=n<<i(r)-i(n);return t<<12|r},o.getPatternPosition=function(t){return r[t-1]},o.getMaskFunction=function(t){switch(t){case l:return function(t,r){return(t+r)%2==0};case h:return function(t,r){return t%2==0};case s:return function(t,r){return r%3==0};case v:return function(t,r){return(t+r)%3==0};case d:return function(t,r){return(Math.floor(t/2)+Math.floor(r/3))%2==0};case w:return function(t,r){return t*r%2+t*r%3==0};case p:return function(t,r){return(t*r%2+t*r%3)%2==0};case y:return function(t,r){return(t*r%3+(t+r)%2)%2==0};default:throw"bad maskPattern:"+t}},o.getErrorCorrectPolynomial=function(t){for(var r=k([1],0),e=0;e<t;e+=1)r=r.multiply(k([1,C.gexp(e)],0));return r},o.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case a:return 10;case u:return 9;case f:case c:return 8;default:throw"mode:"+t}else if(r<27)switch(t){case a:return 12;case u:return 11;case f:return 16;case c:return 10;default:throw"mode:"+t}else{if(!(r<41))throw"type:"+r;switch(t){case a:return 14;case u:return 13;case f:return 16;case c:return 12;default:throw"mode:"+t}}},o.getLostPoint=function(t){for(var r=t.getModuleCount(),e=0,n=0;n<r;n+=1)for(var o=0;o<r;o+=1){for(var i=0,a=t.isDark(n,o),u=-1;u<=1;u+=1)if(!(n+u<0||r<=n+u))for(var f=-1;f<=1;f+=1)o+f<0||r<=o+f||0==u&&0==f||a==t.isDark(n+u,o+f)&&(i+=1);i>5&&(e+=3+i-5)}for(n=0;n<r-1;n+=1)for(o=0;o<r-1;o+=1){var c=0;t.isDark(n,o)&&(c+=1),t.isDark(n+1,o)&&(c+=1),t.isDark(n,o+1)&&(c+=1),t.isDark(n+1,o+1)&&(c+=1),0!=c&&4!=c||(e+=3)}for(n=0;n<r;n+=1)for(o=0;o<r-6;o+=1)t.isDark(n,o)&&!t.isDark(n,o+1)&&t.isDark(n,o+2)&&t.isDark(n,o+3)&&t.isDark(n,o+4)&&!t.isDark(n,o+5)&&t.isDark(n,o+6)&&(e+=40);for(o=0;o<r;o+=1)for(n=0;n<r-6;n+=1)t.isDark(n,o)&&!t.isDark(n+1,o)&&t.isDark(n+2,o)&&t.isDark(n+3,o)&&t.isDark(n+4,o)&&!t.isDark(n+5,o)&&t.isDark(n+6,o)&&(e+=40);var g=0;for(o=0;o<r;o+=1)for(n=0;n<r;n+=1)t.isDark(n,o)&&(g+=1);return e+=Math.abs(100*g/r/r-50)/5*10},o),C=function(){for(var t=new Array(256),r=new Array(256),e=0;e<8;e+=1)t[e]=1<<e;for(e=8;e<256;e+=1)t[e]=t[e-4]^t[e-5]^t[e-6]^t[e-8];for(e=0;e<255;e+=1)r[t[e]]=e;var n={glog:function(t){if(t<1)throw"glog("+t+")";return r[t]},gexp:function(r){for(;r<0;)r+=255;for(;r>=256;)r-=255;return t[r]}};return n}();function k(t,r){if(void 0===t.length)throw t.length+"/"+r;var e=function(){for(var e=0;e<t.length&&0==t[e];)e+=1;for(var n=new Array(t.length-e+r),o=0;o<t.length-e;o+=1)n[o]=t[o+e];return n}(),n={getAt:function(t){return e[t]},getLength:function(){return e.length},multiply:function(t){for(var r=new Array(n.getLength()+t.getLength()-1),e=0;e<n.getLength();e+=1)for(var o=0;o<t.getLength();o+=1)r[e+o]^=C.gexp(C.glog(n.getAt(e))+C.glog(t.getAt(o)));return k(r,0)},mod:function(t){if(n.getLength()-t.getLength()<0)return n;for(var r=C.glog(n.getAt(0))-C.glog(t.getAt(0)),e=new Array(n.getLength()),o=0;o<n.getLength();o+=1)e[o]=n.getAt(o);for(o=0;o<t.getLength();o+=1)e[o]^=C.gexp(C.glog(t.getAt(o))+r);return k(e,0).mod(t)}};return n}var A=function(){var t=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],r=function(t,r){var e={};return e.totalCount=t,e.dataCount=r,e},e={};return e.getRSBlocks=function(e,n){var o=function(r,e){switch(e){case g.L:return t[4*(r-1)+0];case g.M:return t[4*(r-1)+1];case g.Q:return t[4*(r-1)+2];case g.H:return t[4*(r-1)+3];default:return}}(e,n);if(void 0===o)throw"bad rs block @ typeNumber:"+e+"/errorCorrectionLevel:"+n;for(var i=o.length/3,a=[],u=0;u<i;u+=1)for(var f=o[3*u+0],c=o[3*u+1],l=o[3*u+2],h=0;h<f;h+=1)a.push(r(c,l));return a},e}(),b=function(){var t=[],r=0,e={getBuffer:function(){return t},getAt:function(r){var e=Math.floor(r/8);return 1==(t[e]>>>7-r%8&1)},put:function(t,r){for(var n=0;n<r;n+=1)e.putBit(1==(t>>>r-n-1&1))},getLengthInBits:function(){return r},putBit:function(e){var n=Math.floor(r/8);t.length<=n&&t.push(0),e&&(t[n]|=128>>>r%8),r+=1}};return e},M=function(t){var r=a,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+2<r.length;)t.put(o(r.substring(n,n+3)),10),n+=3;n<r.length&&(r.length-n==1?t.put(o(r.substring(n,n+1)),4):r.length-n==2&&t.put(o(r.substring(n,n+2)),7))}},o=function(t){for(var r=0,e=0;e<t.length;e+=1)r=10*r+i(t.charAt(e));return r},i=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);throw"illegal char :"+t};return n},x=function(t){var r=u,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+1<r.length;)t.put(45*o(r.charAt(n))+o(r.charAt(n+1)),11),n+=2;n<r.length&&t.put(o(r.charAt(n)),6)}},o=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);if("A"<=t&&t<="Z")return t.charCodeAt(0)-"A".charCodeAt(0)+10;switch(t){case" ":return 36;case"$":return 37;case"%":return 38;case"*":return 39;case"+":return 40;case"-":return 41;case".":return 42;case"/":return 43;case":":return 44;default:throw"illegal char :"+t}};return n},m=function(r){var e=f,n=t.stringToBytes(r),o={getMode:function(){return e},getLength:function(t){return n.length},write:function(t){for(var r=0;r<n.length;r+=1)t.put(n[r],8)}};return o},L=function(r){var e=c,n=t.stringToBytesFuncs.SJIS;if(!n)throw"sjis not supported.";!function(){var t=n("友");if(2!=t.length||38726!=(t[0]<<8|t[1]))throw"sjis not supported."}();var o=n(r),i={getMode:function(){return e},getLength:function(t){return~~(o.length/2)},write:function(t){for(var r=o,e=0;e+1<r.length;){var n=(255&r[e])<<8|255&r[e+1];if(33088<=n&&n<=40956)n-=33088;else{if(!(57408<=n&&n<=60351))throw"illegal char at "+(e+1)+"/"+n;n-=49472}n=192*(n>>>8&255)+(255&n),t.put(n,13),e+=2}if(e<r.length)throw"illegal char at "+(e+1)}};return i},D=function(){var t=[],r={writeByte:function(r){t.push(255&r)},writeShort:function(t){r.writeByte(t),r.writeByte(t>>>8)},writeBytes:function(t,e,n){e=e||0,n=n||t.length;for(var o=0;o<n;o+=1)r.writeByte(t[o+e])},writeString:function(t){for(var e=0;e<t.length;e+=1)r.writeByte(t.charCodeAt(e))},toByteArray:function(){return t},toString:function(){var r="";r+="[";for(var e=0;e<t.length;e+=1)e>0&&(r+=","),r+=t[e];return r+="]"}};return r},S=function(t){var r=t,e=0,n=0,o=0,i={read:function(){for(;o<8;){if(e>=r.length){if(0==o)return-1;throw"unexpected end of file./"+o}var t=r.charAt(e);if(e+=1,"="==t)return o=0,-1;t.match(/^\s$/)||(n=n<<6|a(t.charCodeAt(0)),o+=6)}var i=n>>>o-8&255;return o-=8,i}},a=function(t){if(65<=t&&t<=90)return t-65;if(97<=t&&t<=122)return t-97+26;if(48<=t&&t<=57)return t-48+52;if(43==t)return 62;if(47==t)return 63;throw"c:"+t};return i},I=function(t,r,e){for(var n=function(t,r){var e=t,n=r,o=new Array(t*r),i={setPixel:function(t,r,n){o[r*e+t]=n},write:function(t){t.writeString("GIF87a"),t.writeShort(e),t.writeShort(n),t.writeByte(128),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(255),t.writeByte(255),t.writeByte(255),t.writeString(","),t.writeShort(0),t.writeShort(0),t.writeShort(e),t.writeShort(n),t.writeByte(0);var r=a(2);t.writeByte(2);for(var o=0;r.length-o>255;)t.writeByte(255),t.writeBytes(r,o,255),o+=255;t.writeByte(r.length-o),t.writeBytes(r,o,r.length-o),t.writeByte(0),t.writeString(";")}},a=function(t){for(var r=1<<t,e=1+(1<<t),n=t+1,i=u(),a=0;a<r;a+=1)i.add(String.fromCharCode(a));i.add(String.fromCharCode(r)),i.add(String.fromCharCode(e));var f,c,g,l=D(),h=(f=l,c=0,g=0,{write:function(t,r){if(t>>>r!=0)throw"length over";for(;c+r>=8;)f.writeByte(255&(t<<c|g)),r-=8-c,t>>>=8-c,g=0,c=0;g|=t<<c,c+=r},flush:function(){c>0&&f.writeByte(g)}});h.write(r,n);var s=0,v=String.fromCharCode(o[s]);for(s+=1;s<o.length;){var d=String.fromCharCode(o[s]);s+=1,i.contains(v+d)?v+=d:(h.write(i.indexOf(v),n),i.size()<4095&&(i.size()==1<<n&&(n+=1),i.add(v+d)),v=d)}return h.write(i.indexOf(v),n),h.write(e,n),h.flush(),l.toByteArray()},u=function(){var t={},r=0,e={add:function(n){if(e.contains(n))throw"dup key:"+n;t[n]=r,r+=1},size:function(){return r},indexOf:function(r){return t[r]},contains:function(r){return void 0!==t[r]}};return e};return i}(t,r),o=0;o<r;o+=1)for(var i=0;i<t;i+=1)n.setPixel(i,o,e(i,o));var a=D();n.write(a);for(var u=function(){var t=0,r=0,e=0,n="",o={},i=function(t){n+=String.fromCharCode(a(63&t))},a=function(t){if(t<0);else{if(t<26)return 65+t;if(t<52)return t-26+97;if(t<62)return t-52+48;if(62==t)return 43;if(63==t)return 47}throw"n:"+t};return o.writeByte=function(n){for(t=t<<8|255&n,r+=8,e+=1;r>=6;)i(t>>>r-6),r-=6},o.flush=function(){if(r>0&&(i(t<<6-r),t=0,r=0),e%3!=0)for(var o=3-e%3,a=0;a<o;a+=1)n+="="},o.toString=function(){return n},o}(),f=a.toByteArray(),c=0;c<f.length;c+=1)u.writeByte(f[c]);return u.flush(),"data:image/gif;base64,"+u};return t}();qrcode.stringToBytesFuncs["UTF-8"]=function(t){return function(t){for(var r=[],e=0;e<t.length;e++){var n=t.charCodeAt(e);n<128?r.push(n):n<2048?r.push(192|n>>6,128|63&n):n<55296||n>=57344?r.push(224|n>>12,128|n>>6&63,128|63&n):(e++,n=65536+((1023&n)<<10|1023&t.charCodeAt(e)),r.push(240|n>>18,128|n>>12&63,128|n>>6&63,128|63&n))}return r}(t)},function(t){"function"==typeof define&&define.amd?define([],t):"object"==typeof exports&&(module.exports=t())}((function(){return qrcode}));
+//# sourceMappingURL=/sm/26b4b0d0b1e283d6b3ec9857ac597d7a60c76ac17be1ef4c965f03086de426bb.map
+</script>
 <script>
 const $ = (id) => document.getElementById(id);
 let paused = false, lastLogIdx = 0, firstLog = true, modelsCache = [];
@@ -503,6 +715,12 @@ async function tick(){
     $('st-ok').textContent = s.success || 0;
     $('st-cache').textContent = s.cache || 0;
     $('st-fail').textContent = s.fail || 0;
+    const k = kpiOf(d.answers || []);
+    $('st-hit').textContent = k.hit;
+    $('st-avg').textContent = k.avg;
+    $('k-p50').textContent = k.p50;
+    $('k-p95').textContent = k.p95;
+    $('k-hit').textContent = k.hit;
     renderAnswers(d.answers || []);
     renderLogs(d.logs || [], d.log_seq || 0);
   }catch(e){
@@ -580,19 +798,232 @@ function renderLogs(logs, seq){
 }
 
 /* ---------------- 答题表 ---------------- */
+const ROUTE_BADGE = {
+  bank:  ['b-bank', '题库'],
+  rag:   ['b-rag', '相似题'],
+  image: ['b-img', '图片'],
+  code:  ['b-text', '代码'],
+  text:  ['b-text', '模型'],
+};
+
+function kpiOf(list){
+  if(!list.length) return {p50:'-', p95:'-', hit:'-', avg:'-'};
+  const ms = list.map(a => a.ms || 0).sort((x, y) => x - y);
+  const at = q => ms[Math.min(ms.length - 1, Math.floor(ms.length * q))];
+  const direct = list.filter(a => a.route === 'bank' || a.route === 'rag' || a.cached).length;
+  return {
+    p50: (at(.5) / 1000).toFixed(1) + 's',
+    p95: (at(.95) / 1000).toFixed(1) + 's',
+    avg: (ms.reduce((x, y) => x + y, 0) / ms.length / 1000).toFixed(1) + 's',
+    hit: Math.round(direct / list.length * 100) + '%',
+  };
+}
+
+function routeBadge(a){
+  if(a.cached) return '<span class="badge b-cache">缓存</span>';
+  if(!a.ok) return '<span class="badge b-bad">失败</span>';
+  const k = a.route || 'text';
+  const b = ROUTE_BADGE[k] || ['b-text', k];
+  return `<span class="badge ${b[0]}">${esc(b[1])}</span>`;
+}
+
 function renderAnswers(list){
   if(!list.length) return;
-  const rows = list.slice().reverse().map(a => `
+  window.__ans = list.slice().reverse();
+  const rows = window.__ans.map((a, i) => `
     <tr>
       <td style="color:#5f6b7f">${esc(a.t)}</td>
-      <td>${esc(a.q)}</td>
+      <td title="${esc(a.q)}">${esc(a.q)}</td>
       <td><b>${esc(a.a) || '<span style="color:#f87171">空</span>'}</b></td>
-      <td>${a.cached ? '<span class="badge b-cache">缓存</span>'
-            : (a.ok ? '<span class="badge b-ok">'+esc(a.match)+'</span>'
-                    : '<span class="badge b-bad">失败</span>')}</td>
-      <td style="color:#8b96a8">${a.cost != null ? a.cost.toFixed(1)+'s' : '-'}</td>
+      <td>${routeBadge(a)}</td>
+      <td style="color:#8b96a8">${a.ms != null ? (a.ms / 1000).toFixed(1) + 's' : '-'}</td>
+      <td>${a.ok && !a.cached && a.route !== 'bank' ? `<button class="fixbtn" data-i="${i}" title="答错了？点这里订正">✎</button>` : ''}${a.hid && a.ok && !a.cached ? ` <button class="fixbtn" data-i="${i}" data-thumb="1" title="答错了？点此标记，帮系统统计真实正确率">👎</button>` : ''}</td>
     </tr>`).join('');
   $('ans-body').innerHTML = rows;
+  document.querySelectorAll('#ans-body .fixbtn').forEach(b => {
+    b.onclick = () => b.dataset.thumb ? markWrong(parseInt(b.dataset.i, 10), b) : fixAnswer(parseInt(b.dataset.i, 10));
+  });
+}
+
+/* v1.4：答错标记（不改答案，只进正确率统计） */
+async function markWrong(i, btn){
+  const a = (window.__ans || [])[i];
+  if(!a || !a.hid) return;
+  if(!confirm('标记这道题答错？\n\n' + a.q.slice(0, 60) + '\n\n（只统计，不改答案；要改答案请用 ✎）')) return;
+  try{
+    await api('/api/quiz/mark', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({hid: a.hid, correct: false, src: 'thumb'})});
+    btn.textContent = '✗'; btn.disabled = true; btn.style.color = '#f87171';
+  }catch(e){ alert('标记失败：' + e.message); }
+}
+
+async function fixAnswer(i){
+  const a = (window.__ans || [])[i];
+  if(!a) return;
+  const v = prompt(`订正答案（写入后永久生效，优先级高于题库）\n\n题目：${a.q}\n\n正确答案（选项文字或字母）：`, a.a || '');
+  if(v === null || !v.trim()) return;
+  try{
+    await api('/api/corrections', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question: a.q, options: a.opts || '', answer: v.trim()})
+    });
+    const b = document.querySelector(`#ans-body .fixbtn[data-i="${i}"]`);
+    if(b){ b.textContent = '✓'; b.disabled = true; b.style.color = '#4ade80'; }
+  }catch(e){
+    alert('订正失败：' + e.message);
+  }
+}
+
+/* ---------------- 题库文件拖拽导入 ---------------- */
+function splitCSVLine(line){
+  const out = []; let cur = '', q = false;
+  for(let i = 0; i < line.length; i++){
+    const c = line[i];
+    if(q){
+      if(c === '"' && line[i + 1] === '"'){ cur += '"'; i++; }
+      else if(c === '"'){ q = false; }
+      else cur += c;
+    }else{
+      if(c === '"') q = true;
+      else if(c === ','){ out.push(cur); cur = ''; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+
+function csvToBankText(text){
+  const lines = text.replace(/\r\n/g, '\n').split('\n').filter(l => l.trim());
+  if(lines.length < 2) return '';
+  const head = splitCSVLine(lines[0]).map(s => s.toLowerCase());
+  const find = (...keys) => head.findIndex(h => keys.some(k => h.includes(k)));
+  let qi = find('题干', '题目', '问题', 'question', 'title');
+  const ai = find('答案', 'answer', '正确');
+  if(qi < 0) qi = 0;
+  if(ai < 0) return '';
+  const optCols = [];
+  head.forEach((h, i) => {
+    if(i === qi || i === ai) return;
+    if(/选项\s*[a-h]|^[a-h]$|opt/.test(h)) optCols.push(i);
+  });
+  const multi = find('选项', 'options');   // 单列合并形式
+
+  const blocks = [];
+  for(let r = 1; r < lines.length; r++){
+    const c = splitCSVLine(lines[r]);
+    const q = (c[qi] || '').trim();
+    const a = (c[ai] || '').trim();
+    if(!q || !a) continue;
+    let opts = [];
+    if(optCols.length) opts = optCols.map(i => (c[i] || '').trim()).filter(Boolean);
+    else if(multi >= 0) opts = (c[multi] || '').split(/[|;；]/).map(s => s.trim()).filter(Boolean);
+    if(!opts.length) continue;
+    blocks.push(q + '\n' + opts.map((o, i) =>
+      (o.match(/^[A-Ha-h][.．、:：)）]/) ? o : `${'ABCDEFGH'[i]}. ${o}`)).join('\n')
+      + '\n答案：' + a);
+  }
+  return blocks.join('\n\n');
+}
+
+function jsonToBankText(obj){
+  const blocks = [];
+  const push = (q, opts, a) => {
+    if(!q || !a || !opts || !opts.length) return;
+    blocks.push(q + '\n' + opts.map((o, i) => {
+      const s = String(o).trim();
+      return s.match(/^[A-Ha-h][.．、:：)）]/) ? s : `${'ABCDEFGH'[i]}. ${s}`;
+    }).join('\n') + '\n答案：' + a);
+  };
+  if(Array.isArray(obj)){
+    obj.forEach(e => push(e.question || e.q || e.title, e.options || e.opts, e.answer || e.a));
+  }else if(obj && typeof obj === 'object'){
+    Object.values(obj).forEach(v => {
+      if(v && typeof v === 'object') push(v.question, v.options, v.answer);
+    });
+  }
+  return blocks.join('\n\n');
+}
+
+function readFileSmart(file){
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const buf = fr.result;
+      let txt = new TextDecoder('utf-8').decode(buf);
+      // UTF-8 解出大量替换符 → 大概率是 GBK 表格
+      if((txt.match(/\uFFFD/g) || []).length > 3){
+        try{ txt = new TextDecoder('gbk').decode(buf); }catch(e){}
+      }
+      resolve(txt);
+    };
+    fr.onerror = reject;
+    fr.readAsArrayBuffer(file);
+  });
+}
+
+async function importFile(file){
+  if(!file) return;
+  const name = (file.name || '').toLowerCase();
+  const raw = await readFileSmart(file);
+  let text = raw;
+  if(name.endsWith('.csv')){
+    text = csvToBankText(raw);
+  }else if(name.endsWith('.json')){
+    try{
+      text = jsonToBankText(JSON.parse(raw));
+    }catch(e){
+      $('bank-msg').textContent = ' JSON 解析失败：' + e.message;
+      return;
+    }
+  }
+  if(!text.trim()){
+    $('bank-msg').textContent = ' 没解析出题目：请确认表头包含「题干 / 答案 / 选项」';
+    return;
+  }
+  $('bank-text').value = text.slice(0, 200000);
+  $('bank-msg').textContent = ` 已读取 ${file.name}，正在导入…`;
+  try{
+    const d = await api('/api/bank', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text})
+    });
+    $('bank-msg').textContent = ' ' + d.message;
+    await loadBank();
+  }catch(e){
+    $('bank-msg').textContent = ' 导入失败：' + e.message;
+  }
+}
+
+/* ---------------- 档位 ---------------- */
+async function loadTier(){
+  try{
+    const d = await api('/api/tiers');
+    document.querySelectorAll('.tier').forEach(b => {
+      b.classList.toggle('on', b.dataset.tier === d.current);
+    });
+  }catch(e){ /* 忽略 */ }
+}
+
+async function setTier(name){
+  const btns = document.querySelectorAll('.tier');
+  btns.forEach(b => b.disabled = true);
+  try{
+    const d = await api('/api/tier', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tier: name})
+    });
+    const c = d.config || {};
+    $('tier-note').textContent = d.message +
+      `：验证 ${c.verify_mode} · token ${c.cloud_max_tokens} · 间隔 ${c.delay_min_ms}~${c.delay_max_ms}ms`;
+    await Promise.all([loadTier(), loadConfig()]);
+  }catch(e){
+    $('tier-note').textContent = '切换失败：' + e.message;
+  }finally{
+    btns.forEach(b => b.disabled = false);
+  }
 }
 
 /* ---------------- 配置 ---------------- */
@@ -641,6 +1072,11 @@ async function loadConfig(){
   $('f-delay').checked = !!c.human_delay;
   $('f-delaycache').checked = !!c.delay_on_cache;
   $('f-autobrowser').checked = !!c.auto_open_browser;
+  // v1.4 图片预处理
+  $('f-imgpre').checked = !!c.preprocess_image;
+  $('f-imggray').checked = !!c.image_grayscale;
+  $('f-imgdenoise').checked = !!c.image_denoise;
+  $('f-imgside').value = c.image_max_side || 1280;
   $('ocs-cfg').textContent = d.ocs_snippet || '';
 }
 
@@ -694,6 +1130,12 @@ const PRESETS = {
            vision_model:'glm-4v-flash', code_model:'', cloud_max_tokens:1024},
   silicon:{backend:'openai', api_base:'https://api.siliconflow.cn/v1',
            vision_model:'Qwen/Qwen2.5-VL-7B-Instruct', code_model:'Qwen/Qwen3-8B', cloud_max_tokens:1024},
+  deepseek:{backend:'openai', api_base:'https://api.deepseek.com',
+           model:'deepseek-chat', fallback_model:'', vision_model:'', code_model:'',
+           cloud_max_tokens:1024},
+  doubao: {backend:'openai', api_base:'https://ark.cn-beijing.volces.com/api/v3',
+           model:'doubao-seed-2.1-lite', fallback_model:'', vision_model:'', code_model:'',
+           cloud_max_tokens:1024},
   local:  {backend:'ollama', vision_model:'qwen2.5vl:7b', code_model:'', cloud_max_tokens:1024}
 };
 document.querySelectorAll('[data-preset-models]').forEach(b => {
@@ -704,7 +1146,7 @@ document.querySelectorAll('[data-preset-models]').forEach(b => {
     const r = await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(Object.assign({}, p,
         {verify_mode:'fast', prompt_preset:'default', cot_mode:false, bank_enabled:true}))});
-    alert(r.ok ? '已套用推荐配置，请检查 api_key 是否已填，然后保存并自检。' : (r.message||'失败'));
+    alert(r.ok ? '已套用推荐配置。\n\n1) 填 api_key\n2) 点「拉取模型」确认模型名真实存在（不存在会红字提示）\n3) 保存并自检' : (r.message||'失败'));
     await loadConfig();
   };
 });
@@ -734,6 +1176,11 @@ $('btn-save').onclick = async () => {
     human_delay: $('f-delay').checked,
     delay_on_cache: $('f-delaycache').checked,
     auto_open_browser: $('f-autobrowser').checked,
+    // v1.4 图片预处理
+    preprocess_image: $('f-imgpre').checked,
+    image_grayscale: $('f-imggray').checked,
+    image_denoise: $('f-imgdenoise').checked,
+    image_max_side: $('f-imgside').value,
   };
   $('btn-save').disabled = true;
   $('save-msg').className = 'hint'; $('save-msg').textContent = ' 保存中…';
@@ -806,6 +1253,21 @@ $('btn-bank-clear').onclick = async () => {
   await api('/api/bank', {method:'DELETE'});
   $('bank-msg').textContent = ' 已清空'; loadBank();
 };
+$('btn-bank-auto').onclick = async () => {
+  const btn = $('btn-bank-auto');
+  btn.disabled = true;
+  $('auto-msg').textContent = ' 正在扫描历史记录…';
+  try{
+    const r = await api('/api/bank/auto', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+    $('auto-msg').textContent = ' ' + (r.message || (r.ok?'完成':'失败'));
+    if(r.bank_total != null) $('bank-sum').textContent = `题库 ${r.bank_total} 条`;
+  }catch(e){
+    $('auto-msg').textContent = ' 失败：' + e.message;
+  }finally{
+    btn.disabled = false; loadBank();
+  }
+};
 $('btn-fix-save').onclick = async () => {
   const q = $('fix-q').value.trim(), a = $('fix-a').value.trim();
   if(!q || !a){ $('fix-msg').textContent = ' 题目和正确答案都要填'; return; }
@@ -838,20 +1300,242 @@ $('btn-copy').onclick = async () => {
 
 $('btn-diag').onclick = runDiag;
 $('btn-clear-ans').onclick = () => {
-  $('ans-body').innerHTML = '<tr><td colspan="5" class="hint" style="padding:16px 8px">已清空显示（服务端记录仍在）</td></tr>';
+  $('ans-body').innerHTML = '<tr><td colspan="6" class="hint" style="padding:16px 8px">已清空显示（服务端记录仍在）</td></tr>';
 };
 $('btn-pause').onclick = (e) => {
   paused = !paused;
   e.target.textContent = paused ? '继续' : '暂停';
 };
 
+
+/* ---------------- v1.4：主题 / 候选 / 核对 / 二维码 / 引导 / 配置迁移 ---------------- */
+function uiClose(id){ $(id).style.display = 'none'; }
+window.uiClose = uiClose;
+
+/* 明暗主题 */
+(function(){
+  const saved = localStorage.getItem('jy_theme');
+  if(saved === 'light') document.body.classList.add('light');
+  $('btn-theme').onclick = () => {
+    const light = document.body.classList.toggle('light');
+    localStorage.setItem('jy_theme', light ? 'light' : 'dark');
+    $('btn-theme').textContent = light ? '☀️' : '🌙';
+  };
+  if(saved === 'light') $('btn-theme').textContent = '☀️';
+})();
+
+/* 候选题入库 */
+let __cand = [];
+async function loadCandidates(){
+  try{
+    const d = await api('/api/bank/candidates');
+    __cand = d.items || [];
+    $('cand-sum').textContent = __cand.length ? (__cand.length + ' 条待确认') : '暂无';
+    const list = $('cand-list');
+    if(!__cand.length){ list.style.display = 'none';
+      ['btn-cand-keep','btn-cand-discard'].forEach(id => $(id).style.display = 'none');
+      return; }
+    list.style.display = '';
+    ['btn-cand-keep','btn-cand-discard'].forEach(id => $(id).style.display = '');
+    list.innerHTML = __cand.map(h => `
+      <label class="qrow" style="cursor:pointer">
+        <input type="checkbox" class="cand-ck" data-id="${h.id}">
+        <span class="qt"><b>${esc((h.q||'').slice(0,70))}</b><br>
+          <span style="color:var(--dim2);font-size:11.5px">${esc((h.opts||[]).join(' | ')||'(无选项)')}</span></span>
+        <span class="qa">${esc(h.a)}${h.verify ? ' · ' + esc(h.verify) : ''}</span>
+      </label>`).join('');
+  }catch(e){ $('cand-sum').textContent = '加载失败'; }
+}
+function candSelIds(){
+  return [...document.querySelectorAll('.cand-ck:checked')].map(c => parseInt(c.dataset.id, 10));
+}
+$('btn-cand-keep').onclick = async () => {
+  const ids = candSelIds();
+  if(!ids.length){ $('cand-msg').textContent = ' 先勾选要收录的题'; return; }
+  const r = await api('/api/bank/candidates', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ids, action:'keep'})});
+  $('cand-msg').textContent = ' ' + (r.message || r.error || '完成');
+  loadCandidates(); loadBank();
+};
+$('btn-cand-discard').onclick = async () => {
+  const ids = candSelIds();
+  if(!ids.length){ $('cand-msg').textContent = ' 先勾选要丢弃的题'; return; }
+  const r = await api('/api/bank/candidates', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ids, action:'discard'})});
+  $('cand-msg').textContent = ' ' + (r.message || r.error || '完成');
+  loadCandidates(); loadBank();
+};
+$('btn-cand-refresh').onclick = loadCandidates;
+
+/* 抽样核对 */
+async function openQuiz(){
+  $('m-quiz').style.display = '';
+  $('quiz-list').innerHTML = '<div class="hint" style="padding:20px">加载中…</div>';
+  const st = await api('/api/quiz/stats');
+  const acc = st.acc != null ? (st.acc + '%（近14天 ' + (st.recent_acc != null ? st.recent_acc + '%' : '无') + '）')
+                             : '还没有数据';
+  $('quiz-stats').textContent = '累计核对 ' + st.total + ' 题 · 真实正确率 ' + acc;
+  const d = await api('/api/quiz/sample?n=20');
+  const items = d.items || [];
+  if(!items.length){
+    $('quiz-list').innerHTML = '<div class="hint" style="padding:20px">暂无可核对的题——先答几道题再来</div>';
+    return;
+  }
+  $('quiz-list').innerHTML = items.map(h => `
+    <div class="qrow">
+      <span class="qt"><b>${esc((h.q||'').slice(0,80))}</b><br>
+        <span style="color:var(--dim2);font-size:11.5px">${esc((h.opts||[]).slice(0,4).join(' | '))}</span></span>
+      <span class="qa">${esc(h.a)}</span>
+      <span style="display:flex;gap:6px">
+        <button class="btn" style="padding:4px 10px" onclick="quizJudge(${h.id},1,this)">对</button>
+        <button class="btn ghost" style="padding:4px 10px" onclick="quizJudge(${h.id},0,this)">错</button>
+      </span>
+    </div>`).join('');
+}
+window.quizJudge = async (hid, ok, btn) => {
+  try{
+    await api('/api/quiz/mark', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({hid, correct: !!ok, src:'quiz'})});
+    const row = btn.closest('.qrow');
+    row.style.opacity = .45;
+    btn.disabled = true;
+    row.querySelectorAll('button').forEach(b => { if(b !== btn) b.disabled = true; });
+    const st = await api('/api/quiz/stats');
+    $('quiz-msg').textContent = ' 已记录 · 当前正确率 ' + (st.acc != null ? st.acc + '%' : '-');
+  }catch(e){ alert('记录失败：' + e.message); }
+};
+$('btn-quiz').onclick = openQuiz;
+$('btn-quiz-more').onclick = openQuiz;
+
+/* 局域网二维码 */
+$('btn-lanqr').onclick = async () => {
+  const st = await api('/api/status');
+  const ip = st.lan_ip || '';
+  const port = window.__cfg ? window.__cfg.port : 5000;
+  if(!ip){ $('m-qr').style.display = '';
+    $('qr-box').innerHTML = '<p style="color:#333;padding:20px">未能探测到局域网 IP（可能未联网）</p>';
+    $('qr-url').textContent = ''; return; }
+  let url = 'http://' + ip + ':' + port + '/';
+  const tk = st.auth_token || '';
+  if(tk && tk.indexOf('*') === -1) url += '?token=' + encodeURIComponent(tk);
+  $('m-qr').style.display = '';
+  $('qr-url').textContent = url;
+  try{
+    const qr = qrcode(0, 'M');
+    qr.addData(url); qr.make();
+    $('qr-box').innerHTML = qr.createSvgTag({cellSize: 4, margin: 0});
+  }catch(e){
+    $('qr-box').innerHTML = '<p style="color:#333;padding:16px">' + esc(url) + '</p>';
+  }
+  $('lan-ip').textContent = '本机局域网 IP：' + ip + (tk && tk.indexOf('*') === -1 ? '（已带令牌）' : tk ? '（令牌已设置，按原样访问）' : '');
+};
+
+/* 配置迁移 */
+$('btn-cfg-export').onclick = async () => {
+  const d = await api('/api/export/config');
+  const blob = new Blob([JSON.stringify(d, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'jy-config-' + new Date().toISOString().slice(0,10) + '.jyconfig';
+  a.click(); URL.revokeObjectURL(a.href);
+};
+$('btn-cfg-import').onclick = () => $('cfg-file').click();
+$('cfg-file').onchange = async () => {
+  const f = $('cfg-file').files[0]; $('cfg-file').value = '';
+  if(!f) return;
+  try{
+    const d = JSON.parse(await f.text());
+    const r = await api('/api/config/import', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(d)});
+    alert(r.ok ? (r.message + '（api_key 需手动填写）') : (r.message || r.error || '导入失败'));
+    await loadConfig();
+  }catch(e){ alert('文件解析失败：' + e.message); }
+};
+
+/* 首次三步引导 */
+function obShow(n){
+  [1,2,3].forEach(i => $('ob-'+i).style.display = i === n ? '' : 'none');
+}
+function maybeOnboard(){
+  if(localStorage.getItem('jy_onboarded') === '1') return;
+  const c = window.__cfg || {};
+  const need = (c.backend === 'openai' && (!c.api_key || c.api_key.indexOf('***') === -1)) || !c.model;
+  if(!need) return;
+  $('m-onboard').style.display = '';
+  obShow(c.backend === 'openai' && c.api_base ? 2 : 1);
+}
+document.querySelectorAll('[data-preset-models]').forEach(b => {
+  const old = b.onclick;
+  b.addEventListener('click', () => {
+    if($('m-onboard').style.display !== 'none' && $('m-onboard').style.display !== ''){
+      // 引导中选了服务商：进入第 2 步
+    } else return;
+  });
+});
+/* 引导流程的显式绑定（在预设按钮 handler 之后追加） */
+document.querySelectorAll('#m-onboard [data-preset-models]').forEach(b => {
+  b.addEventListener('click', () => setTimeout(() => { obShow(2); }, 400));
+});
+$('ob-test').onclick = async () => {
+  const key = $('ob-key').value.trim();
+  if(!key){ $('ob-msg').textContent = ' 先粘贴 Key'; return; }
+  $('ob-test').disabled = true; $('ob-msg').textContent = ' 测通中…';
+  try{
+    await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({api_key: key})});
+    const d = await api('/api/config');
+    window.__cfg = d.config;
+    if(d.models && d.models.length) fillModels(d.models, false);
+    const c = d.config;
+    const ok = c.backend === 'ollama' || (c.api_key && c.api_key.indexOf('***') !== -1);
+    $('ob-msg').textContent = ok ? ' ✓ 已保存' : ' 保存失败，请重试';
+    if(ok){ await runDiag(); obShow(3); }
+  }catch(e){ $('ob-msg').textContent = ' ' + e.message; }
+  $('ob-test').disabled = false;
+};
+$('ob-copy').onclick = () => {
+  const t = $('ocs-cfg').textContent;
+  navigator.clipboard && navigator.clipboard.writeText(t);
+  $('ob-copy').textContent = '✓ 已复制';
+};
+$('ob-skip').onclick = () => {
+  localStorage.setItem('jy_onboarded', '1');
+  uiClose('m-onboard');
+};
+$('ob-done').onclick = () => {
+  localStorage.setItem('jy_onboarded', '1');
+  uiClose('m-onboard');
+};
+
 /* ---------------- 启动 ---------------- */
 (async function init(){
+  document.querySelectorAll('.tier').forEach(b => {
+    b.onclick = () => setTier(b.dataset.tier);
+  });
+  const drop = $('bank-drop'), fi = $('bank-file');
+  if(drop && fi){
+    drop.onclick = () => fi.click();
+    fi.onchange = () => { importFile(fi.files[0]); fi.value = ''; };
+    ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => {
+      e.preventDefault(); drop.classList.add('over');
+    }));
+    ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => {
+      e.preventDefault(); drop.classList.remove('over');
+    }));
+    drop.addEventListener('drop', e => {
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      importFile(f);
+    });
+  }
   await tick();
-  await Promise.all([runDiag(), loadConfig(), loadBank()]);
+  await Promise.all([runDiag(), loadConfig(), loadBank(), loadTier()]);
+  loadCandidates();
+  maybeOnboard();
   setInterval(tick, 1500);
   setInterval(loadBank, 10000);
+  setInterval(loadCandidates, 20000);
 })();
 </script>
+
 </body>
 </html>

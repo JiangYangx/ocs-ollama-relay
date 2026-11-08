@@ -31,11 +31,20 @@ ocs-ollama-relay/
 ├── requirements.txt        # flask>=3.0, requests>=2.31
 ├── start.bat               # Windows 一键启动
 ├── build.bat               # Windows 一键打包
+├── jy_store.py             # SQLite 持久化（题库/订正/缓存/历史/指标）
+├── jy_prep.py              # 前置预处理（文本清洗 / 图片缩放 / 学科识别）
+├── jy_rag.py               # 相似题检索（ngram 零依赖 / 可选向量）
+├── jy_check.py             # 答案自检（越界字母 / 漏选 / 选项外文字）
+├── jy_tiers.py             # 一键档位（极速 / 平衡 / 高正确率）
 ├── ocs_relay.spec          # PyInstaller 配置（由 build.bat 调用）
 ├── ocs_config_for_ocs.txt  # 客户端接入配置模板（JSON）
 ├── tools/
-│   └── build_exe.py        # 构建入口：注入控制台 → 调用 PyInstaller
+│   ├── build_exe.py        # 构建入口：注入控制台 → 调用 PyInstaller
+│   ├── make_bank.py        # 题库转换器：CSV / Excel / TSV → 可导入题库
+│   ├── fetch_ceval.py      # 拉取公开题库 C-Eval（52 学科 / 1.3 万题）
+│   └── sample_bank.txt     # 示例题库（31 条公开通识题，验证用）
 ├── docs/
+│   ├── GETTING_STARTED.md  # 给使用者的上手说明（不会代码也能照做）
 │   ├── API.md              # 接口详解与调用示例
 │   └── FAQ.md              # 常见问题排查
 ├── .github/
@@ -71,6 +80,9 @@ ocs-ollama-relay/
 ---
 
 ## 快速开始
+
+> 只是想把程序跑起来用、不打算读源码？看 [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)，
+> 里面有「下载 exe → 配模型 → 粘客户端配置」的完整步骤，以及多人共用一台机器的做法。
 
 ### 第 1 步：准备 Ollama 和模型
 
@@ -181,6 +193,10 @@ dist/
 | `/api/fix` | POST | 一键修复（`start_ollama` / `pull_model` / `pull_fallback` / `change_port` / `reset_config`） |
 | `/api/health` | GET | 简版健康检查 |
 | `/api/bank` | GET / POST / DELETE | 题库：查状态 / 导入（`{"text": "..."}`）/ 清空 |
+| `/api/bank/candidates` | GET / POST | 候选题：待确认列表 / 批量收录或丢弃 |
+| `/api/quiz/sample` `/api/quiz/mark` `/api/quiz/stats` | GET / POST / GET | 抽样核对：抽题 / 回填对错 / 正确率统计 |
+| `/api/config/import` | POST | 导入 `.jyconfig`（拒收 api_key） |
+| `/api/bank/auto` | POST | 从 history.jsonl 自动建库（`{"force": false}`） |
 | `/api/corrections` | GET / POST / DELETE | 人工订正：列表+最近答题 / 新增 / 删除（`?key=`） |
 | `/` | GET | 控制台页面 |
 
@@ -271,6 +287,30 @@ curl -X POST http://127.0.0.1:5000/api/qa \
 
 **正确率增强（v1.2.x）**
 答题优先级：**人工订正 > 导入题库 > 缓存 > 双模型交叉验证的模型答案**。题库命中零成本秒回；答错的题在控制台一键订正后永久生效；`verify_mode=full` 时主模型与复核模型不一致会交给第三个仲裁模型裁决，响应 `verify` 字段标注置信情况（agree / conflict / arbitrated）。
+
+**v1.4 知识闭环**
+候选题库人工确认入库（模型答案不再自动进题库）、抽样核对真实正确率（按天曲线）、答题流一键答错标记、首次三步引导（3 分钟出第一道答案）、`.jyconfig` 配置迁移、局域网手机扫码接入、明暗主题与移动端适配。
+
+**v1.3 成型版**
+一键档位（极速 / 平衡 / 高正确率，参数协同写入）、答案自检（越界字母、多选漏选、选项外文字自动拦截重答）、SQLite 持久化（重启不丢缓存、题库命中 1ms 级）、相似题检索 RAG（ngram 零依赖，可选 Ollama 向量模型）、HTTP 连接复用（每题省 80~200ms）、云端失败自动切本地 Ollama、题库文件拖拽导入、实时 KPI（p50 / p95 / 命中率）与一键诊断包导出。
+
+**题库自动积累（v1.2.2）**
+答过的题自动记入 `history.jsonl`，控制台「题库与订正 → 从历史记录建库」一键沉淀成题库：交叉验证一致的题直接收录，前后答案不一致的题自动过滤。同一道题再出现就是毫秒级命中（实测 ~2ms，`cost=0`），且不随模型波动。自己的表格资料（CSV / Excel）用 `tools/make_bank.py` 一键转换后导入。
+
+**公开题库接入（v1.2.3）**
+`tools/fetch_ceval.py` 可从镜像拉取公开学术题库 **C-Eval**（52 个学科、13685 道单选题），转换后直接进库：
+
+```bash
+python tools/fetch_ceval.py --list                                # 看有哪些学科
+python tools/fetch_ceval.py --subjects computer_network,law       # 只下指定学科
+python tools/fetch_ceval.py --json bank.json                      # 全量，直接放到程序目录
+```
+
+实测 1.3 万条题库加载后内存约 68MB，命中 1.3ms、`cost=0`。
+
+> **要清楚它的边界**：题库命中要求「题干一致」。C-Eval 是公开考试题，覆盖的是通用学科知识，**不会命中你课程的原题**。它的价值在于：① 验证整条题库链路；② 覆盖计算机/数学/法律等基础概念题。真正贴合你题目的题库只有三种来源——自己答过的历史、课程配套资料、同课程同学整理的题库（后者请注意版权与平台条款）。
+>
+> 数据许可证 **CC BY-NC-SA 4.0**：仅个人学习/研究使用，不得商用，再分发需保留署名与相同许可。脚本不含题库数据，只在运行时从镜像下载。
 
 ---
 
