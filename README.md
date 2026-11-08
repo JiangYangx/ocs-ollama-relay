@@ -11,6 +11,20 @@
 ![Flask](https://img.shields.io/badge/flask-3.0%2B-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+[![Release](https://img.shields.io/github/v/release/JiangYangx/ocs-ollama-relay?label=release&color=success)](https://github.com/JiangYangx/ocs-ollama-relay/releases/latest)
+
+## 下载
+
+👉 **[最新版本下载页](https://github.com/JiangYangx/ocs-ollama-relay/releases/latest)**
+
+| 选这个 | 适合谁 | 文件 |
+|---|---|---|
+| **安装包**（推荐） | 普通使用者：双击安装，自动建桌面/开始菜单快捷方式，安装时可勾选开机自启 | `JY-Relay-Setup-<版本>.exe` |
+| **免安装版** | 想放 U 盘或任意目录、不写系统的 | `JY-Relay.exe`（单文件，双击即用） |
+
+> 程序未做代码签名，首次运行可能被 SmartScreen 或杀软拦一下 —— 点「更多信息 → 仍要运行」即可。
+> Windows 用户下载安装包最省事；拿不准就看 [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)，图文步骤从零到能答题。
+
 
 **双后端可切换**：
 
