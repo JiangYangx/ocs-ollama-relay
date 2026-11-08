@@ -424,8 +424,28 @@ class RingHandler(logging.Handler):
             pass
 
 
+def _console_stream():
+    """控制台流：GBK(cp936) 下 emoji 会抛 UnicodeEncodeError，统一切到 utf-8 并降级替换。
+    窗口版 exe（pythonw/runw）没有 stdout，直接返回 None 以跳过该 handler。"""
+    s = sys.stdout
+    if s is None:
+        return None
+    try:
+        s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        try:
+            s = io.TextIOWrapper(s.buffer, encoding="utf-8", errors="replace",
+                                 line_buffering=True)
+        except Exception:
+            pass
+    return s
+
+
 def _setup_logging():
-    handlers = [logging.StreamHandler(sys.stdout)]
+    handlers = []
+    stream = _console_stream()
+    if stream is not None:
+        handlers.append(logging.StreamHandler(stream))
     try:
         from logging.handlers import RotatingFileHandler
         handlers.append(RotatingFileHandler(LOG_PATH, maxBytes=2 * 1024 * 1024,
