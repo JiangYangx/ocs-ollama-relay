@@ -5,7 +5,7 @@
 #define MyAppName "JY 答题助手"
 #define MyAppVersion "1.5.0"
 #define MyAppExeName "JY-Relay.exe"
-#define MyAppRepo "https://github.com/JiangYang/ocs-ollama-relay"
+#define MyAppRepo "https://github.com/JiangYangx/ocs-ollama-relay"
 
 [Setup]
 AppId={{8E4A2C91-6B7D-4E0A-9F3B-A1B2C3D4E5F6}
@@ -14,8 +14,12 @@ AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} v{#MyAppVersion}
 DefaultDirName={autopf}\JY-Relay
 DefaultGroupName={#MyAppName}
+AppPublisher=JiangYangx
+AppPublisherURL={#MyAppRepo}
+AppSupportURL={#MyAppRepo}/issues
+AppUpdatesURL={#MyAppRepo}/releases
 UninstallDisplayIcon={app}\{#MyAppExeName}
-OutputDir=..
+OutputDir=dist
 OutputBaseFilename=JY-Relay-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
@@ -32,11 +36,11 @@ Name: "autostart"; Description: "开机自动启动（后台答题不弹窗）";
   GroupDescription: "附加选项："; Flags: checkedonce
 
 [Files]
-Source: "..\dist\JY-Relay.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\dist\config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist uninsneveruninstall
+Source: "dist\JY-Relay.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist uninsneveruninstall
 ; README / 许可证随手带上
-Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--no-browser"
