@@ -797,6 +797,40 @@ def _norm(s: str) -> str:
     return s.lower()
 
 
+_CUE_LETTER = re.compile(
+    r"(?:正确答案|正确选项|答案|应选|选择|选项|选|answer\s*(?:is|:|：))"
+    r"\s*(?:是|为|：|:)?\s*[\(（\[【\"'“]?\s*([A-H])\b", re.I)
+
+
+def _salvage_option(answer: str, opts: list[dict]):
+    """从模型的长解释里，捞回它其实想选的那一项。
+
+    v2.0 实测发现：模型偶尔不守格式，回一段英文分析（"The question asks..."）或
+    "答案是 X，因为..."，旧逻辑原样返回，等于把解释当答案给客户端。
+    这里按「明确指认的字母 → 唯一出现的选项正文 → 最后提到的选项」三级回捞。
+    """
+    if not answer or not opts:
+        return None
+    text = str(answer)
+    letters = {o["letter"] for o in opts}
+    for m in _CUE_LETTER.finditer(text):
+        L = m.group(1).upper()
+        if L in letters:
+            for o in opts:
+                if o["letter"] == L:
+                    return o["text"], "cue-letter", "从解释中提取字母 %s" % L
+    na = _norm(text)
+    hits = [o for o in opts if _norm(o["text"]) and _norm(o["text"]) in na]
+    if len(hits) == 1:
+        return hits[0]["text"], "cue-text", "解释中唯一出现的选项"
+    if len(hits) > 1:
+        best = max(hits, key=lambda o: (na.rfind(_norm(o["text"])), len(_norm(o["text"]))))
+        # 多个选项都提到时不可靠，仅在最后提及位置明显靠后（结论段）才采用
+        if na.rfind(_norm(best["text"])) > len(na) * 0.6:
+            return best["text"], "cue-text", "解释末尾提到的选项"
+    return None
+
+
 def match_option(answer: str, opts: list[dict]) -> tuple[str, str, str]:
     """
     返回 (最终答案, 输出形式, 说明)
@@ -870,6 +904,11 @@ def match_option(answer: str, opts: list[dict]) -> tuple[str, str, str]:
                 best, best_len = o, len(no)
     if best:
         return best["text"], "contains", "文本包含匹配"
+
+    # 5.5) 模型没按格式答，回了一长段分析：从中回捞它想选的那项
+    got = _salvage_option(answer, opts)
+    if got:
+        return got
 
     # 6) 兜底：原文返回（填空题走这条路）
     return answer, "raw", "无匹配，原样返回"
@@ -2320,6 +2359,21 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
         # 在返回前补足节律间隔（不是在此之前 sleep，见 pace_gate 注释）
         waited = pace_gate(True)
 
+        # v2.1：答案没能对上任何选项（模型跑偏/字母越界）时，绝不能标 high——
+        # 实测里曾出现 verify=agree 但答案是 "H" 的「高置信错误」
+        _unparsed = form in ("raw", "raw-multi") or "越界" in (note or "")
+        if _unparsed:
+            _conf = "low"
+        elif (verify == "agree" or _vote_overrode
+              or (len(votes) > 1 and _vote_agree >= _vote_need)):
+            _conf = "high"
+        elif verify == "conflict":
+            _conf = "low"
+        else:
+            _conf = "medium"
+        if _unparsed and "未匹配选项" not in (note or ""):
+            note = (note + "；" if note else "") + "答案未匹配到任何选项，请人工核对"
+
         result = {
             "question": title,
             "answer": final,
@@ -2341,11 +2395,7 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
             # v2.0：来源与置信度（前端据此打徽章，客户端也能拿到）
             # 投票"达标"= 参与模型 >=2 且最高票 >= vote_min，无论是否覆盖主模型
             "source": "vote" if (len(votes) > 1 and _vote_overrode) else "model",
-            "confidence": (
-                "high" if (verify == "agree" or _vote_overrode
-                           or (len(votes) > 1 and _vote_agree >= _vote_need))
-                else "low" if verify == "conflict"
-                else "medium"),
+            "confidence": _conf,
             "votes": votes,
         }
         if final:
