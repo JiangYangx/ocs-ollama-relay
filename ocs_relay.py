@@ -160,12 +160,12 @@ DEFAULT_CONFIG = {
     "auto_tier": True,                # 简单题走轻量模型，复杂题走旗舰
     "light_model": "",                # 轻量模型；留空=主模型但压短 token
     # 7) v1.3 相似题检索（RAG）
-    "rag_enable": False,              # 默认关：开启前先跑一批样本看命中质量
+    "rag_enable": True,               # v2.0.3 默认开：题干有错字/标点差异也能命中题库
     "rag_backend": "ngram",           # ngram（零依赖）/ vector（需 Ollama embedding + numpy）
     "rag_embed_model": "bge-m3",      # vector 模式用的本地 embedding 模型
     "rag_top_k": 3,
-    "rag_direct": 0.88,               # ≥ 该相似度直接采用答案，不问模型
-    "rag_inject": 0.75,               # 该区间以上作为参考注入提示词
+    "rag_direct": 0.92,               # ≥ 该相似度直接采用答案，不问模型（调高防误命中）
+    "rag_inject": 0.78,               # 该区间以上作为参考注入提示词
     # 8) v1.3 答案自检
     "self_check": True,               # 越界字母/空答案/多选漏选，自动修正或重答一次
     # 9) v1.3 前置预处理
@@ -199,6 +199,8 @@ DEFAULT_CONFIG = {
     "cache_size": 1024,               # 内存缓存条数
     "auth_token": "",                 # 访问令牌（非空则所有接口需携带；0.0.0.0 局域网暴露时强烈建议设置）
     "lan_share": False,               # v2.0：允许监听 0.0.0.0（必须同时设置 auth_token）
+    "bank_no_delay": False,           # v2.0.3：题库命中跳过拟人节律（真毫秒级；批量答题场景建议保持关）
+    "config_version": 3,              # 配置结构版本，用于自动迁移
     # ---------------- v2.0 适配层（决定别人的客户端怎么接进来）----------------
     "api_mode": "auto",               # auto | ocs | openai —— auto 按请求体特征判断
     "field_map": {},                  # 自定义字段映射，如 {"title":"question","options":"choices"}
@@ -223,8 +225,6 @@ DEFAULT_CONFIG = {
     "update_check": True,             # 启动时检查 GitHub 新版本（失败静默，不影响使用）
     "update_repo": "JiangYangx/ocs-ollama-relay",  # 检查更新的仓库（owner/repo）
     "update_auto_download": False,    # v2.0：检测到新版时在程序内直接下载安装包
-    # ---------------- v2.0 配置治理 ----------------
-    "config_version": 2,              # 配置结构版本，用于自动迁移
 }
 
 # 允许通过界面修改的字段及其类型（防止误传任意字段写坏配置）
@@ -294,6 +294,7 @@ EDITABLE_FIELDS = {
     "cache_normalize": bool,
     "fast_path_max_len": int,
     "lan_share": bool,
+    "bank_no_delay": bool,
     "api_mode": str,
     "field_map": dict,
     "response_format": str,
@@ -343,6 +344,17 @@ def _migrate_config(cfg: dict, raw: dict | None = None) -> dict:
             cfg[k] = copy.deepcopy(v)
             raw[k] = copy.deepcopy(v)
             added.append(k)
+    # v2 → v3：RAG 相似题检索默认开启（v2.0.3 起）。
+    # 老配置里 rag_enable=false 是"默认值写成了 false"而不是用户主动关的，
+    # 迁移时统一打开；确实不想要的在设置里关一次即可（此后不再强改）。
+    if cur < 3:
+        if raw.get("rag_enable") is False:
+            cfg["rag_enable"] = True
+            raw["rag_enable"] = True
+            added.append("rag_enable(默认开启)")
+        if raw.get("rag_direct", 0) < 0.92:
+            cfg["rag_direct"] = 0.92
+            raw["rag_direct"] = 0.92
     cfg["config_version"] = target
     raw["config_version"] = target
     try:
@@ -1319,7 +1331,11 @@ def import_bank(text: str) -> tuple[int, int, list[str]]:
                 "answer": e["answer"], "options": e["options"],
                 "qtype": e["qtype"], "ts": time.time(),
                 "hits": BANK.get(key, {}).get("hits", 0),
-                "question": e["question"], "verified": True, "src": "import",
+                "question": e["question"],
+                # v2.0.3：导入的题不算已校验（争议题/过时题存在），
+                # 只有控制台人工订正过的才置 True → 命中时标 high
+                "verified": bool(BANK.get(key, {}).get("verified")),
+                "src": "import",
             }
         if entries:
             _save_json_map(BANK_PATH, BANK)
@@ -1348,35 +1364,50 @@ def csv_text_to_bank_text(raw: str) -> str:
 
 BUNDLED_BANK_DIR = os.path.join(BASE_DIR, "bank")
 
+# v2.0.3：内置题库导入状态（页面横幅用；导入挪到后台线程，服务先起、页面先开）
+BANK_IMPORT = {"running": False, "added": 0, "files": 0, "msg": "", "ts": 0.0}
+
 
 def auto_import_bundled_bank() -> dict:
     """把安装目录 bank/*.csv 导入题库，做到「装完即有题」。
 
-    只做一次：导入后写 meta 标记，用户之后清空题库不会被再次塞回来。
-    已有成规模题库（≥1000 条）时跳过，避免覆盖老用户的积累。
+    v2.0.3 起在后台线程执行；标记从"导没导过"改为"哪个版本处理过"：
+    升级安装包带了新题库时自动增量合并（只加题/更新同题答案，
+    不删任何已有条目；人工订正存在 corrections 表，优先级高于题库，不受影响）。
     """
     res = {"ok": False, "files": 0, "added": 0, "message": "跳过"}
     if STORE is None:
         return {**res, "message": "存储层未就绪，跳过内置题库"}
     try:
-        if STORE.meta_get("bundled_bank_imported") == "1":
-            return {**res, "message": "内置题库已导入过"}
+        ver = STORE.meta_get("bundled_bank_ver")
+        legacy_done = STORE.meta_get("bundled_bank_imported") == "1"   # 2.0.2 标记
     except Exception:
-        pass
+        ver, legacy_done = None, False
+    if ver == APP_VERSION:
+        return {**res, "message": f"内置题库已随 v{APP_VERSION} 处理过"}
+    if ver is None and not legacy_done:
+        # 首次遇到 2.0.3：2.0.2 之前的用户若已有成规模题库，视为自己导入的，不合并
+        with _KB_LOCK:
+            cur = len(BANK)
+        if cur >= 1000:
+            try:
+                STORE.meta_set("bundled_bank_ver", APP_VERSION)
+            except Exception:
+                pass
+            log.info("题库已有 %d 条（非内置），跳过内置题库合并", cur)
+            return {**res, "message": f"题库已有 {cur} 条，跳过"}
     if not os.path.isdir(BUNDLED_BANK_DIR):
-        return {**res, "message": "没有内置题库目录"}
-    with _KB_LOCK:
-        cur = len(BANK)
-    if cur >= 1000:
         try:
-            STORE.meta_set("bundled_bank_imported", "1")
+            STORE.meta_set("bundled_bank_ver", APP_VERSION)
         except Exception:
             pass
-        log.info("题库已有 %d 条，跳过内置题库自动导入", cur)
-        return {**res, "message": f"题库已有 {cur} 条，跳过"}
+        return {**res, "message": "没有内置题库目录"}
 
+    BANK_IMPORT.update({"running": True, "added": 0, "files": 0,
+                        "msg": "正在读取内置题库…", "ts": time.time()})
     files = sorted(f for f in os.listdir(BUNDLED_BANK_DIR) if f.lower().endswith(".csv"))
     if not files:
+        BANK_IMPORT.update({"running": False, "msg": "内置题库目录为空"})
         return {**res, "message": "内置题库目录为空"}
 
     chunks = []
@@ -1391,20 +1422,25 @@ def auto_import_bundled_bank() -> dict:
         except Exception as e:
             log.warning("内置题库读取失败 %s：%s", name, e)
     if not chunks:
+        BANK_IMPORT.update({"running": False, "msg": "内置题库解析为空"})
         return {**res, "message": "内置题库解析为空"}
 
+    BANK_IMPORT["msg"] = "正在合并内置题库…"
     log.info("正在导入内置题库（首次启动，请稍候）…")
     added, updated, errors = import_bank("\n".join(chunks))
     res["added"] = added + updated
     try:
-        STORE.meta_set("bundled_bank_imported", "1")
+        STORE.meta_set("bundled_bank_ver", APP_VERSION)
     except Exception:
         pass
     res["ok"] = res["added"] > 0
-    res["message"] = (f"内置题库导入完成：{res['files']} 个文件，"
+    res["message"] = (f"内置题库合并完成：{res['files']} 个文件，"
                       f"新增 {added} 条，更新 {updated} 条"
                       + (f"，{len(errors)} 条跳过" if errors else ""))
     log.info(res["message"])
+    BANK_IMPORT.update({"running": False, "added": res["added"],
+                        "files": res["files"], "msg": res["message"],
+                        "ts": time.time()})
     return res
 
 
@@ -2140,15 +2176,20 @@ def answer_question(title: str, options_text, qtype: str = "unknown",
         final, form, note = match_option(bank_ans, opts)
         if not final:                       # 订正答案没匹配上选项时原样给
             final, form, note = bank_ans, "raw", "原样返回"
-        # v2.0：命中题库与命中缓存同属"瞬时结果"，共用 delay_on_cache 开关
-        waited = pace_gate(CFG.get("delay_on_cache", True))
+        # v2.0.3：人工订正的题标 high；纯题库导入的标 medium（内容未逐题校验）
+        verified_hit = "订正" in str(bank_src)
+        conf = "high" if verified_hit else "medium"
+        hit_note = "" if verified_hit else "（题库未逐题校验，可点订正确认）"
+        # v2.0.3：bank_no_delay 开启时命中直接返回，不吃拟人节律
+        waited = pace_gate(CFG.get("delay_on_cache", True)
+                           and not CFG.get("bank_no_delay"))
         result = {
             "question": title, "answer": final, "raw_answer": bank_ans,
             "options": [o["text"] for o in opts], "letters": [o["letter"] for o in opts],
-            "match": form, "note": f"来源：{bank_src}", "model": bank_src,
+            "match": form, "note": f"来源：{bank_src}{hit_note}", "model": bank_src,
             "has_images": False, "route": "bank", "cost": 0,
-            "source": "correction" if "订正" in str(bank_src) else "bank",
-            "confidence": "high", "votes": [],
+            "source": "correction" if verified_hit else "bank",
+            "confidence": conf, "votes": [],
             "pace_wait_ms": round(waited), "total": round(time.time() - total_t0, 2),
             "ms": round((time.time() - total_t0) * 1000, 1),
             "cached": False, "success": bool(final),
@@ -3181,7 +3222,8 @@ def api_quiz_stats():
 def api_summary():
     """首页三个数字：今天答了多少、正确率、平均耗时。"""
     empty = {"answered": 0, "ok": 0, "avg_ms": 0, "checked": 0,
-             "correct": 0, "acc": None}
+             "correct": 0, "acc": None,
+             "est_total": 0, "est_wrong": 0, "est_acc": None}
     try:
         s = STORE.today_summary() if STORE is not None else dict(empty)
     except Exception:
@@ -3203,6 +3245,7 @@ def api_summary():
         "backend": backend,
         "configured": configured,
         "bank_count": bank_n,
+        "bank_import": dict(BANK_IMPORT),
         "update_available": _UPDATE_STATE.get("latest") if _UPDATE_STATE.get("has_update") else None,
     })
 
@@ -4184,18 +4227,24 @@ def main():
         except Exception:
             pass
 
-    # v2.0.2：首次启动把安装目录 bank/*.csv 导入题库，做到「装完即有题」
-    #   只做一次（meta 标记），已有成规模题库时跳过，不覆盖用户积累
-    try:
-        with _KB_LOCK:
-            _bank_before = len(BANK)
-        if _bank_before < 1000 and os.path.isdir(BUNDLED_BANK_DIR):
-            _br = auto_import_bundled_bank()
-            if _br.get("added"):
-                print(f"   {_br.get('message')}")
-                print()
-    except Exception as _e:
-        log.warning("内置题库导入异常：%s", _e)
+    # v2.0.3：内置题库导入挪到后台线程 —— 服务先起、页面先开，进度显示在页面横幅里
+    def _bg_bank_import():
+        try:
+            with _KB_LOCK:
+                _bank_before = len(BANK)
+            imported = False
+            if _bank_before < 1000 and os.path.isdir(BUNDLED_BANK_DIR):
+                _br = auto_import_bundled_bank()
+                imported = bool(_br.get("added"))
+                if imported:
+                    log.info(_br.get("message"))
+            # 只有本次真的导入了新题才重建相似题索引（老用户的索引在 main 里照旧建）
+            if imported and CFG.get("rag_enable") and RAG is not None and BANK:
+                threading.Thread(target=lambda: rag_rebuild(force=False),
+                                 daemon=True).start()
+        except Exception as _e:
+            log.warning("内置题库导入异常：%s", _e)
+    threading.Thread(target=_bg_bank_import, daemon=True).start()
 
     def bg_health():
         """后台每 5 秒刷新一次 Ollama 状态，供控制台显示，避免每次轮询都打 Ollama。"""

@@ -41,7 +41,7 @@ relay.log
 *.log
 logs/
 config.json.tmp
-config.json.bak
+config.json.bak*
 
 # ---- 个人数据（题库 / 人工订正 / 答题历史，不要提交）----
 bank.json

@@ -375,7 +375,9 @@ class Store:
 
     # ---------------- 首页摘要（人话） ----------------
     def today_summary(self) -> dict:
-        """今天答了多少、平均多久、抽查正确率多少 —— 首页只显示这三个数。"""
+        """今天答了多少、平均多久、抽查正确率多少 —— 首页只显示这三个数。
+        v2.0.3：增加 est_acc —— 「模型作答数 - 答错标记数」的估算正确率，
+        不需要人工逐题核对就有数；与 quiz 表的人工核对值（acc）分开返回。"""
         lt = time.localtime()
         start = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday,
                              0, 0, 0, 0, 0, -1))
@@ -386,11 +388,21 @@ class Store:
         q = self._query(
             "SELECT COUNT(*) c, COALESCE(SUM(correct),0) ok FROM quiz WHERE ts>=?",
             (start,))
+        # 估算：真正走模型的题（排除题库/相似题/缓存命中，那些答案不反映模型能力）
+        mn = self._query(
+            "SELECT COUNT(*) c FROM metrics WHERE ts>=? AND kind='qa' "
+            "AND cached=0 AND route NOT IN ('bank','rag','correction')", (start,))
+        wn = self._query(
+            "SELECT COUNT(*) c FROM quiz WHERE ts>=? AND correct=0 AND src='thumb' "
+            "AND hist_id IN (SELECT id FROM history WHERE route NOT IN "
+            "('bank','rag','correction'))", (start,))
         cnt = (m[0]["c"] if m else 0) or 0
         avg = (m[0]["a"] if m else 0) or 0
         ok = (m[0]["ok"] if m else 0) or 0
         qt = (q[0]["c"] if q else 0) or 0
         qok = (q[0]["ok"] if q else 0) or 0
+        model_n = (mn[0]["c"] if mn else 0) or 0
+        wrong_n = (wn[0]["c"] if wn else 0) or 0
         return {
             "answered": cnt,
             "ok": ok,
@@ -398,6 +410,10 @@ class Store:
             "checked": qt,
             "correct": qok,
             "acc": round(qok / qt * 100, 1) if qt else None,
+            "est_total": model_n,
+            "est_wrong": wrong_n,
+            "est_acc": (round((model_n - wrong_n) / model_n * 100, 1)
+                        if model_n else None),
         }
 
     # ---------------- 指标 ----------------

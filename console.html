@@ -69,9 +69,13 @@ body.light .stat, body.light .rec, body.light table tr{color:#1c2430}
 .grid > *{min-width:0}   /* 防止表格/pre 等宽内容撑破移动端布局 */
 @media(max-width:900px){.grid{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
-  padding:18px 20px;margin-bottom:16px}
+  padding:18px 20px;margin-bottom:16px;
+  box-shadow:0 4px 18px rgba(0,0,0,.22);transition:border-color .18s}
+.card:hover{border-color:#313c55}
 .card h2{font-size:13.5px;font-weight:600;color:var(--txt);margin-bottom:14px;
-  display:flex;align-items:center;gap:8px}
+  display:flex;align-items:center;gap:9px}
+.card h2::before{content:"";width:3px;height:14px;border-radius:2px;flex:0 0 3px;
+  background:linear-gradient(180deg,var(--acc),var(--acc2))}
 .card h2 .n{color:var(--dim2);font-weight:500;font-size:11.5px}
 .card h2 .right{margin-left:auto;display:flex;gap:8px}
 
@@ -115,8 +119,8 @@ input:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 3px #4c8dff22}
   font-family:inherit;display:inline-flex;align-items:center;gap:6px}
 .btn:hover{background:#232b3d;border-color:#33405a}
 .btn.primary{background:linear-gradient(135deg,var(--acc),#3a6fd8);border-color:transparent;
-  color:#fff;font-weight:560;box-shadow:0 4px 14px #4c8dff33}
-.btn.primary:hover{filter:brightness(1.08)}
+  color:#fff;font-weight:600;box-shadow:0 4px 14px #4c8dff33;transition:.16s}
+.btn.primary:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 7px 18px #4c8dff45}
 .btn.ghost{background:transparent}
 .btn:disabled{opacity:.55;cursor:default}
 /* v2.0 准确率档位按钮 */
@@ -159,6 +163,8 @@ tr:hover td{background:#141a26}
   white-space:pre-wrap;word-break:break-all;position:relative}
 .copy{margin-top:8px;display:flex;gap:8px;align-items:center}
 .hint{font-size:11.5px;color:var(--dim2)}
+.empty-cell{text-align:center;padding:30px 8px !important;color:var(--dim2);font-size:12.5px}
+.empty-cell::before{content:"◌";display:block;font-size:26px;margin-bottom:6px;opacity:.4}
 .mt{margin-top:14px}
 .saved{color:var(--ok);font-size:12px;margin-left:8px}
 a{color:var(--acc);text-decoration:none}
@@ -166,6 +172,8 @@ a{color:var(--acc);text-decoration:none}
 /* ---------- 移动端适配（手机 / 平板竖屏）---------- */
 @media(max-width:640px){
   body{font-size:13px}
+  .hs + .hs{border-left:none}
+  .hs{padding:2px 12px}
   .wrap{padding:16px 12px 44px}
   header{gap:10px;margin-bottom:16px}
   .logo{width:34px;height:34px;border-radius:9px}
@@ -274,36 +282,66 @@ a{color:var(--acc);text-decoration:none}
 /* ---------- v1.5 首页 ---------- */
 .navsw{display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px;margin-left:8px}
 .navbtn{border:0;background:transparent;color:var(--dim);font-family:inherit;font-size:12.5px;padding:6px 12px;border-radius:8px;cursor:pointer;white-space:nowrap}
-.navbtn.on{background:#23304a;color:var(--txt)}
-.hero{background:linear-gradient(180deg,#171d2b,#141a26);border:1px solid var(--line);
-  border-radius:18px;padding:38px 24px 30px;text-align:center;margin-bottom:18px;position:relative;overflow:hidden}
-.hero::before{content:"";position:absolute;inset:-40% 20% auto;height:200px;
-  background:radial-gradient(closest-side,#4c8dff26,transparent);pointer-events:none}
-.hero-state{font-size:14px;display:inline-flex;align-items:center;gap:8px;color:var(--dim);position:relative}
-.hero-state b{color:var(--txt);font-size:18px;font-weight:650}
-.hero-sub{color:var(--dim2);font-size:12.5px;margin-top:6px;position:relative}
-.hero-stats{display:flex;justify-content:center;gap:48px;margin:26px 0 24px;flex-wrap:wrap;position:relative}
-.hs b{display:block;font-size:26px;font-weight:650;letter-spacing:.3px}
-.hs span{font-size:12px;color:var(--dim2)}
-.btn-xl{font-size:16px;padding:13px 44px;border-radius:12px}
+.navbtn.on{background:linear-gradient(135deg,#2a3c66,#23304a);color:var(--txt);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+.hero{background:linear-gradient(180deg,#182032 0%,#131a28 55%,#121826 100%);border:1px solid #2a3450;
+  border-radius:20px;padding:40px 24px 32px;text-align:center;margin-bottom:18px;position:relative;overflow:hidden;
+  box-shadow:0 14px 44px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05)}
+.hero::before{content:"";position:absolute;inset:-55% 12% auto;height:260px;
+  background:radial-gradient(closest-side,#4c8dff30,transparent 72%);pointer-events:none}
+.hero::after{content:"";position:absolute;inset:auto -20% -120px;height:200px;
+  background:radial-gradient(closest-side,#7c5cff1f,transparent 70%);pointer-events:none}
+.hero-state{font-size:13px;display:inline-flex;align-items:center;gap:8px;color:var(--dim);position:relative;
+  background:rgba(76,141,255,.09);border:1px solid rgba(76,141,255,.22);border-radius:999px;padding:5px 14px}
+.hero-state b{color:var(--txt);font-size:15px;font-weight:650;letter-spacing:.3px}
+.hero-sub{color:var(--dim2);font-size:12.5px;margin-top:10px;position:relative}
+.hero-stats{display:flex;justify-content:center;align-items:stretch;margin:30px 0 26px;flex-wrap:wrap;position:relative}
+.hs{padding:2px 44px;display:flex;flex-direction:column;justify-content:center}
+.hs + .hs{border-left:1px solid #2a3450}
+.hs b{display:block;font-size:34px;font-weight:700;letter-spacing:.2px;line-height:1.15;
+  font-variant-numeric:tabular-nums;background:linear-gradient(180deg,#f2f6ff,#c9d6ee);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hs.acc-on b{background:linear-gradient(180deg,#5eead4,#37d67a);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hs b.small{font-size:19px;font-weight:600;letter-spacing:.4px;opacity:.75}
+.hs span{font-size:12px;color:var(--dim2);margin-top:5px;letter-spacing:.5px}
+.btn-xl{font-size:16px;padding:14px 48px;border-radius:13px;box-shadow:0 8px 26px #4c8dff45;transition:.18s}
+.btn-xl:hover{transform:translateY(-1px);box-shadow:0 11px 30px #4c8dff5c}
 .hero-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;position:relative}
-.hero-note{margin-top:16px;font-size:12px;color:var(--dim2);position:relative}
+.hero-note{margin-top:18px;font-size:12px;color:var(--dim2);position:relative}
 .upbar{display:flex;align-items:center;gap:10px;background:#1d2b1f;border:1px solid #2f5134;
   color:#a7e3b0;padding:8px 14px;border-radius:10px;font-size:12.5px;margin-bottom:14px}
 .upbar a{color:#7fd8ff;text-decoration:none}
 .up-x{margin-left:auto;background:none;border:0;color:#6d8b72;cursor:pointer;font-size:14px}
-.steps{margin:6px 0 0 18px;color:var(--dim);font-size:13px;line-height:1.9}
+.steps{list-style:none;margin:8px 0 0;counter-reset:step;color:var(--dim);font-size:13px}.steps li{counter-increment:step;display:flex;gap:11px;align-items:flex-start;padding:7px 0;line-height:1.55}
+.steps li::before{content:counter(step);flex:0 0 22px;width:22px;height:22px;border-radius:50%;
+  background:linear-gradient(135deg,rgba(76,141,255,.18),rgba(124,92,255,.18));
+  border:1px solid rgba(76,141,255,.35);color:#9dbdff;font-size:12px;font-weight:650;
+  display:grid;place-items:center;margin-top:1px}
 .toast{position:fixed;right:18px;bottom:18px;background:#1b2333;border:1px solid #33405a;
   color:var(--txt);padding:10px 14px;border-radius:10px;font-size:13px;z-index:80;
   box-shadow:0 10px 30px #0008;max-width:320px}
-body.light .hero{background:#fff}
+body.light .hero{background:#fff;border-color:#dbe1ea;box-shadow:0 10px 30px rgba(28,36,48,.08)}
+body.light .hero::before{background:radial-gradient(closest-side,#4c8dff14,transparent 72%)}
+body.light .hero::after{background:radial-gradient(closest-side,#7c5cff10,transparent 70%)}
+body.light .hero-state{background:#eef3ff;border-color:#c9d8ff}
+body.light .hs b{background:linear-gradient(180deg,#1c2430,#41506b);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+body.light .hs.acc-on b{background:linear-gradient(180deg,#0e9f6e,#059669);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+body.light .hs + .hs{border-color:#dbe1ea}
+body.light .steps li::before{background:#eef3ff;border-color:#b9cdf5;color:#2f5cc4}
+body.light .card{box-shadow:0 3px 14px rgba(28,36,48,.06)}
+body.light .card:hover{border-color:#b9c5d8}
 body.light .navbtn.on{background:#e2e9f7}
 body.light .upbar{background:#eaf7ec;border-color:#bfe3c6;color:#256b33}
 body.light .upbar a{color:#1d4ed8}
 @media(max-width:720px){
-  .hero{padding:26px 14px 22px}
-  .hero-stats{gap:22px}
-  .hs b{font-size:22px}
+  .hero{padding:28px 14px 24px}
+  .hero-stats{gap:0}
+  .hs{padding:2px 22px}
+  .hs b{font-size:26px}
+  .hs b.small{font-size:15px}
   .btn-xl{width:100%;padding:13px 20px}
   .navsw{margin-left:0}
 }
@@ -349,6 +387,10 @@ body.light .upbar a{color:#1d4ed8}
       <button class="up-x" onclick="hideUpdate()" title="这次不提醒">✕</button>
     </div>
 
+    <div id="import-bar" class="upbar" style="display:none;background:#1d2440;border-color:#3a4a7a;color:#aebfff">
+      <span class="dot busy"></span><span id="imp-text">正在导入内置题库…</span>
+    </div>
+
     <div class="hero">
       <div class="hero-state"><span class="dot" id="h-dot"></span><b id="h-state">正在启动…</b></div>
       <div class="hero-sub" id="h-sub">正在连接模型服务</div>
@@ -375,7 +417,7 @@ body.light .upbar a{color:#1d4ed8}
                   <table>
                     <thead><tr><th style="width:64px">时间</th><th>题目</th><th style="width:110px">答案</th>
                     <th style="width:76px">来源</th><th style="width:56px">耗时</th><th style="width:52px">订正</th></tr></thead>
-                    <tbody id="ans-body"><tr><td colspan="6" class="hint" style="padding:16px 8px">暂无记录，发一条请求试试</td></tr></tbody>
+                    <tbody id="ans-body"><tr><td colspan="6" class="empty-cell">暂无记录，发一条请求试试</td></tr></tbody>
                   </table>
                 </div>
               </div>
@@ -547,6 +589,7 @@ body.light .upbar a{color:#1d4ed8}
           <p>题库命中零成本秒回；答错订正越用越准；交叉验证让两个模型互检。</p>
         </div>
         <label class="switch"><input type="checkbox" id="f-bank" checked><span class="track"></span>题库与人工订正优先（命中不走模型）</label>
+        <label class="switch"><input type="checkbox" id="f-banknodelay"><span class="track"></span>题库命中不等节律（真毫秒级返回；同一批题连续答时建议关，避免节奏异常）</label>
         <label class="switch"><input type="checkbox" id="f-autoroute" checked><span class="track"></span>按题型自动路由（图片题/代码题用专用模型）</label>
         <div class="row2">
           <div class="field">
@@ -1249,6 +1292,7 @@ async function loadConfig(){
   $('f-preset').value = c.prompt_preset || 'default';
   $('f-cot').checked = !!c.cot_mode;
   $('f-bank').checked = !!c.bank_enabled;
+  $('f-banknodelay').checked = !!c.bank_no_delay;
   toggleCloud();
   toggleCotWarn();
   $('f-maxtok').value = c.cloud_max_tokens || 1024;
@@ -1403,6 +1447,7 @@ $('btn-save').onclick = async () => {
     prompt_preset: $('f-preset').value,
     cot_mode: $('f-cot').checked,
     bank_enabled: $('f-bank').checked,
+    bank_no_delay: $('f-banknodelay').checked,
     cloud_max_tokens: $('f-maxtok').value,
     port: $('f-port').value,
     max_concurrency: $('f-conc').value,
@@ -1785,8 +1830,40 @@ async function loadSummary(){
   try{
     const d = await api('/api/summary');
     $('h-today').textContent = d.answered || 0;
-    $('h-acc').textContent = (d.acc == null) ? '—' : d.acc + '%';
+    // v2.0.3：正确率显示 —— 人工核对值优先，其次答错标记估算，都没有则待核对
+    const accEl = $('h-acc'), accLab = accEl.parentElement.querySelector('span:last-child');
+    if (d.acc != null) {
+      accEl.textContent = d.acc + '%';
+      accEl.classList.add('acc-on'); accEl.classList.remove('small');
+      accEl.parentElement.classList.add('acc-on');
+      accLab.textContent = '最近正确率·已核对';
+    } else if (d.est_acc != null) {
+      accEl.textContent = d.est_acc + '%';
+      accEl.classList.remove('acc-on','small');
+      accEl.parentElement.classList.remove('acc-on');
+      accLab.textContent = '正确率·按答错标记估算';
+      accEl.title = `模型作答 ${d.est_total} 题，被标记答错 ${d.est_wrong} 题。点答错按钮 ✓ 可让估算更准`;
+    } else {
+      accEl.textContent = '待核对';
+      accEl.classList.add('small');
+      accEl.classList.remove('acc-on');
+      accEl.parentElement.classList.remove('acc-on');
+      accLab.textContent = '最近正确率';
+    }
     $('h-avg').textContent = d.avg_ms ? (d.avg_ms / 1000).toFixed(1) + ' 秒' : '—';
+    // v2.0.3：内置题库导入进度横幅（导入在后台线程，页面先开）
+    const bi = d.bank_import || {};
+    const impEl = $('import-bar');
+    if (bi.running) {
+      $('imp-text').textContent = bi.msg || '正在导入内置题库…';
+      impEl.style.display = 'flex';
+    } else if (bi.msg && bi.ts && (Date.now()/1000 - bi.ts) < 20 && bi.added) {
+      $('imp-text').textContent = '✓ ' + bi.msg;
+      impEl.style.display = 'flex';
+      setTimeout(() => { impEl.style.display = 'none'; }, 12000);
+    } else {
+      impEl.style.display = 'none';
+    }
     const local = d.backend !== 'openai';
     const m = d.model || '未配置';
     $('h-sub').textContent = (local ? '本地模型 · ' : '云端模型 · ') + m;

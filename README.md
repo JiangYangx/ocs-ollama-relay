@@ -18,6 +18,10 @@ ChatBox / LobeChat / 任何只认 OpenAI 协议的客户端都能直接接进来
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 [![Release](https://img.shields.io/github/v/release/JiangYangx/ocs-ollama-relay?label=release&color=success)](https://github.com/JiangYangx/ocs-ollama-relay/releases/latest)
 
+| 桌面端 | 手机端（同一局域网 / Tailscale 均可） |
+|---|---|
+| ![桌面端](docs/桌面端-首页.png) | ![手机端](docs/手机端-首页.png) |
+
 ## 下载
 
 👉 **[最新版本下载页](https://github.com/JiangYangx/ocs-ollama-relay/releases/latest)**
