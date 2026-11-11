@@ -68,7 +68,12 @@ def main() -> None:
     h = {"Authorization": f"Bearer {tk}", "Accept": "application/vnd.github+json",
          "X-GitHub-Api-Version": "2022-11-28"}
     s = requests.Session()
-    s.trust_env = False
+    # 直连被干扰时可用 GH_PROXY=http://127.0.0.1:59344 走本地代理
+    px = os.environ.get("GH_PROXY") or ""
+    if px:
+        s.proxies = {"http": px, "https": px}
+    else:
+        s.trust_env = False
     s.headers.update(h)
 
     r = s.get(f"{API}/repos/{REPO}/releases/tags/{tag}", timeout=30)
