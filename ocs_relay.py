@@ -1326,6 +1326,88 @@ def import_bank(text: str) -> tuple[int, int, list[str]]:
     return added, updated, errors
 
 
+def csv_text_to_bank_text(raw: str) -> str:
+    """CSV 题库文本 → import_bank 认识的单行格式「题干|选项…|答案：X」。
+
+    约定：第一列题干、第二列答案，可选第三列选项（用 | 分隔），
+    第一行若是表头（question/题干/题目）自动跳过。
+    """
+    import csv as _csv
+    lines = []
+    for i, row in enumerate(_csv.reader(io.StringIO(raw))):
+        row = [c.strip() for c in row if str(c).strip()]
+        if len(row) < 2:
+            continue
+        q, a = row[0], row[1]
+        if i == 0 and q.lower() in ("question", "题干", "题目"):
+            continue
+        opts = [o.strip() for o in (row[2].split("|") if len(row) > 2 else []) if o.strip()]
+        lines.append("|".join([q] + opts + [f"答案：{a}"]))
+    return "\n".join(lines)
+
+
+BUNDLED_BANK_DIR = os.path.join(BASE_DIR, "bank")
+
+
+def auto_import_bundled_bank() -> dict:
+    """把安装目录 bank/*.csv 导入题库，做到「装完即有题」。
+
+    只做一次：导入后写 meta 标记，用户之后清空题库不会被再次塞回来。
+    已有成规模题库（≥1000 条）时跳过，避免覆盖老用户的积累。
+    """
+    res = {"ok": False, "files": 0, "added": 0, "message": "跳过"}
+    if STORE is None:
+        return {**res, "message": "存储层未就绪，跳过内置题库"}
+    try:
+        if STORE.meta_get("bundled_bank_imported") == "1":
+            return {**res, "message": "内置题库已导入过"}
+    except Exception:
+        pass
+    if not os.path.isdir(BUNDLED_BANK_DIR):
+        return {**res, "message": "没有内置题库目录"}
+    with _KB_LOCK:
+        cur = len(BANK)
+    if cur >= 1000:
+        try:
+            STORE.meta_set("bundled_bank_imported", "1")
+        except Exception:
+            pass
+        log.info("题库已有 %d 条，跳过内置题库自动导入", cur)
+        return {**res, "message": f"题库已有 {cur} 条，跳过"}
+
+    files = sorted(f for f in os.listdir(BUNDLED_BANK_DIR) if f.lower().endswith(".csv"))
+    if not files:
+        return {**res, "message": "内置题库目录为空"}
+
+    chunks = []
+    for name in files:
+        fp = os.path.join(BUNDLED_BANK_DIR, name)
+        try:
+            with open(fp, "r", encoding="utf-8-sig") as f:
+                text = csv_text_to_bank_text(f.read())
+            if text.strip():
+                chunks.append(text)
+                res["files"] += 1
+        except Exception as e:
+            log.warning("内置题库读取失败 %s：%s", name, e)
+    if not chunks:
+        return {**res, "message": "内置题库解析为空"}
+
+    log.info("正在导入内置题库（首次启动，请稍候）…")
+    added, updated, errors = import_bank("\n".join(chunks))
+    res["added"] = added + updated
+    try:
+        STORE.meta_set("bundled_bank_imported", "1")
+    except Exception:
+        pass
+    res["ok"] = res["added"] > 0
+    res["message"] = (f"内置题库导入完成：{res['files']} 个文件，"
+                      f"新增 {added} 条，更新 {updated} 条"
+                      + (f"，{len(errors)} 条跳过" if errors else ""))
+    log.info(res["message"])
+    return res
+
+
 def add_correction(question: str, answer: str, options_text: str = "",
                    qtype: str = "single", note: str = "") -> bool:
     key = q_key(question, options_text)
@@ -3530,23 +3612,7 @@ def api_bank_import_file():
     lower = (fname or "").lower()
     is_csv = lower.endswith(".csv") or (not lower and "," in raw.split("\n", 1)[0])
     if is_csv:
-        import csv as _csv
-        import io as _io
-        rows = list(_csv.reader(_io.StringIO(raw)))
-        lines, errors = [], []
-        for i, row in enumerate(rows):
-            row = [c.strip() for c in row if str(c).strip()]
-            if len(row) < 2:
-                continue
-            q, a = row[0], row[1]
-            # 跳过表头
-            if i == 0 and q.lower() in ("question", "题干", "题目"):
-                continue
-            opts = [o.strip() for o in (row[2].split("|") if len(row) > 2 else []) if o.strip()]
-            # 转成 import_bank 认识的单行格式：题干|选项1|选项2|答案：X
-            parts = [q] + opts + [f"答案：{a}"]
-            lines.append("|".join(parts))
-        text = "\n".join(lines)
+        text = csv_text_to_bank_text(raw)
     else:
         text = raw
 
@@ -4117,6 +4183,19 @@ def main():
                     break
         except Exception:
             pass
+
+    # v2.0.2：首次启动把安装目录 bank/*.csv 导入题库，做到「装完即有题」
+    #   只做一次（meta 标记），已有成规模题库时跳过，不覆盖用户积累
+    try:
+        with _KB_LOCK:
+            _bank_before = len(BANK)
+        if _bank_before < 1000 and os.path.isdir(BUNDLED_BANK_DIR):
+            _br = auto_import_bundled_bank()
+            if _br.get("added"):
+                print(f"   {_br.get('message')}")
+                print()
+    except Exception as _e:
+        log.warning("内置题库导入异常：%s", _e)
 
     def bg_health():
         """后台每 5 秒刷新一次 Ollama 状态，供控制台显示，避免每次轮询都打 Ollama。"""

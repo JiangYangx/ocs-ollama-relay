@@ -14,7 +14,8 @@ JY 答题助手（JY Relay，下称「本项目」）是一个**通用的 HTTP �
 
 本项目：
 
-- ❌ 不内置、不附带、不分发任何题库内容（仓库 `bank/`、`cmmlu/` 已在 `.gitignore` 中排除）
+- ❌ 代码仓库不内置、不分发任何题库内容（`bank/`、`cmmlu/` 已在 `.gitignore` 中排除）
+- ⚠️ 安装包内附一份 CMMLU 整理题库（11,576 题），按 CC BY-NC 4.0 **仅限非商业使用**，出处与署名见 `bank/LICENSE-NOTICE.txt`；你可以在控制台「题库」页一键清空
 - ❌ 不提供任何标准答案或答案数据库
 - ❌ 不破解验证码、不逆向加密接口、不绕过任何平台的技术措施
 - ❌ 不实现自动登录、自动切屏、自动提交、屏幕录制或任何针对特定平台的自动化行为
@@ -42,7 +43,8 @@ JY 答题助手（JY Relay，下称「本项目」）是一个**通用的 HTTP �
 
 ## 3. 题库与第三方数据
 
-- 本仓库**不含**任何第三方题库数据文件。README 中提到的公开数据集仅提供下载方式与转换脚本。
+- 本**代码仓库**不含任何第三方题库数据文件（`bank/` 在 `.gitignore` 中排除）。**安装包**为开箱即用，内附一份由 CMMLU 转换而来的题库（`{app}\bank\大学题库-CMMLU-67科-11582题.csv`，去重后 11,576 题），首次启动自动导入 SQLite。
+- **该内置题库不是本项目原创内容**，仅做格式转换、未改写题目与答案，以 CC BY-NC 4.0 原样附带，出处与署名见安装目录 `bank\LICENSE-NOTICE.txt`。它**不得用于任何商业用途**；不认可该许可的用户请在安装后清空题库，或直接使用源码自行接入。
 - [CMMLU](https://github.com/haonan-li/CMMLU) 数据集采用 **CC BY-NC 4.0** 许可：允许非商业使用与改编，**必须署名**，**不得用于商业目的**。版权归原作者所有。引用请注明：
   > Haonan Li, Yixuan Zhang, Fajri Koto, Yifei Yang, Hai Zhao, Yeyun Gong, Nan Duan, Timothy Baldwin. *CMMLU: Measuring massive multitask language understanding in Chinese*. 2023.
 - 其他公开题库（考试酷、大学题库、考试宝、中国大学MOOC 等）的试题版权归其各自权利人所有。本项目仅提供格式转换工具，**不主张、不转让、不代表**任何第三方内容的授权。

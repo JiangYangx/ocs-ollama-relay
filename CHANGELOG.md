@@ -2,6 +2,18 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.2] - 2026-11-11
+
+### Added
+
+- **安装包内置题库**：`bank/*.csv`（CMMLU 整理，共 12,868 条）随安装包分发，首次启动自动导入 SQLite，装完即可离线命中，不必自己找题库
+- `bank/LICENSE-NOTICE.txt`：内置题库的出处、CC BY-NC 4.0 许可、署名与免责说明，随安装包一并复制到 `{app}\bank`
+
+### Changed
+
+- CSV 题库解析抽成 `csv_text_to_bank_text()`，`/api/bank/import` 与控制台导入共用同一套逻辑
+- 自动导入只做一次（SQLite meta 标记 `bundled_bank_imported`），用户之后清空题库不会被再次塞回；已有 ≥1000 条题库时跳过，不覆盖既有积累
+
 ## [2.0.1] - 2026-11-11
 
 ### Added

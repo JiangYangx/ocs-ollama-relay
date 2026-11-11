@@ -49,7 +49,9 @@ corrections.json
 history.jsonl
 *.bank.json
 # 外部题库原始数据与转换产物（含第三方版权，不入库）
-bank/
+# 例外：只放许可与出处说明，便于审计安装包里那份数据的来源
+bank/*
+!bank/LICENSE-NOTICE.txt
 cmmlu/
 ceval_bank.txt
 .cache_ceval/

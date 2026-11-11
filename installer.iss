@@ -43,8 +43,12 @@ Name: "autostart"; Description: "开机自动启动（后台答题不弹窗）";
 [Files]
 Source: "dist\JY-Relay.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist uninsneveruninstall
+; 内置题库（首次启动自动导入；许可为非商业，署名见 bank\LICENSE-NOTICE.txt）
+Source: "bank\*.csv"; DestDir: "{app}\bank"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "bank\LICENSE-NOTICE.txt"; DestDir: "{app}\bank"; Flags: ignoreversion skipifsourcedoesntexist
 ; README / 许可证随手带上
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "DISCLAIMER.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
