@@ -377,6 +377,8 @@ python tools/bank_converter.py cmmlu/test -o bank.csv
 
 转换器自动识别三种输入：CMMLU/C-Eval/MMLU 风格（`Question,A,B,C,D,Answer`）、通用 CSV（题干/答案/选项）、纯文本题库。输出就是 `/api/bank/import` 吃的格式，也可以直接在控制台「题库」页拖进去。
 
+`--push` 走的是文件上传通道（`multipart/form-data` 带 CSV），不是 JSON 字段——批量 JSON 在老版本服务端会把选项串当成答案，别用。导入 1.1 万题约 15 秒，全部可按题干精确命中（毫秒级、cost 0）。
+
 **其他可查可抄的站点**（无批量导出，需手工整理后走转换器）：
 
 - [考试酷](https://www.examcoo.com/index/ku) —— 公共题库永久免费查阅，学历/职业/计算机分类全

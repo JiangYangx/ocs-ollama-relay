@@ -53,11 +53,16 @@ JUDGE_FALSE = ("错误", "错", "×", "F", "False", "否", "B")
 
 
 def clean(s: str) -> str:
-    """清掉会破坏单行格式的字符与多余空白。"""
+    """压掉换行与多余空白。注意：不动 `|`，它是列分隔符，替换掉会让列判断失效。"""
     if s is None:
         return ""
-    s = str(s).replace("|", "/").replace("\r", " ").replace("\n", " ")
+    s = str(s).replace("\r", " ").replace("\n", " ")
     return re.sub(r"[ \t\u3000]+", " ", s).strip()
+
+
+def flat(s: str) -> str:
+    """写进单行/CSV 字段前调用：把 `|` 换成 `/`，避免破坏选项分隔。"""
+    return clean(s).replace("|", "/")
 
 
 def is_header(row) -> bool:
@@ -97,27 +102,31 @@ def read_plain_csv(path: str):
     out = []
     with open(path, "r", encoding="utf-8-sig", newline="") as f:
         rows = [r for r in csv.reader(f) if any(str(c).strip() for c in r)]
-    for i, row in enumerate(rows):
-        row = [clean(c) for c in row]
-        if i == 0 and is_header(row):
+    for i, raw in enumerate(rows):
+        raw = [str(c) for c in raw]
+        if i == 0 and is_header(raw):
             continue
-        if len(row) < 2:
+        if len(raw) < 2:
             continue
-        if len(row) == 2:
-            out.append((row[0], row[1].upper(), []))
+        q = clean(raw[0])
+        if len(raw) == 2:
+            out.append((q, clean(raw[1]).upper(), []))
             continue
-        # 末列含字母或"答案"，第三列含 | → 当作 题干,答案,选项
-        third = row[2]
+        third = raw[2]
         if "|" in third:
-            opts = [o.strip() for o in third.split("|") if o.strip()]
-            out.append((row[0], row[1].upper(), opts))
+            # 题干, 答案, 选项(|分隔)
+            opts = [clean(x) for x in third.split("|") if x.strip()]
+            out.append((q, clean(raw[1]).upper(), opts))
         else:
             # 题干, 选项..., 答案
-            a = row[-1].upper()
-            opts = [o for o in row[1:-1] if o]
+            a = clean(raw[-1]).upper()
+            opts = []
+            for o in raw[1:-1]:
+                t = clean(re.sub(r"^[A-H]\s*[.．、\)）]\s*", "", o))
+                if t:
+                    opts.append("%s. %s" % (LETTERS[len(opts)], t))
             if opts:
-                out.append((row[0], a, ["%s. %s" % (LETTERS[k], re.sub(r"^[A-H][.．、\)）]\s*", "", o))
-                                       for k, o in enumerate(opts)]))
+                out.append((q, a, opts))
     return out
 
 
@@ -260,23 +269,42 @@ def write_csv(items, out_path):
         w = csv.writer(f)
         w.writerow(["题干", "答案", "选项"])
         for q, a, opts in items:
-            w.writerow([q, a, "|".join(opts)])
+            w.writerow([flat(q), flat(a), "|".join(flat(o) for o in opts)])
 
 
 def push(items, base, batch=500):
-    """分批推送到 /api/bank/import（JSON items 形式）。"""
+    """分批推送到 /api/bank/import（multipart 上传 CSV 文件）。
+
+    走文件上传而不是 JSON items：CSV 分支的列定义最稳，
+    老版本 exe 的 JSON 分支在批量时会把选项当成答案串，别踩。
+    """
     base = base.rstrip("/")
+    op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     ok = fail = 0
     for i in range(0, len(items), batch):
         chunk = items[i:i + batch]
-        body = json.dumps({"items": [
-            {"question": q, "answer": a, "options": o} for q, a, o in chunk
-        ]}, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(base + "/api/bank/import", data=body,
-                                     headers={"Content-Type": "application/json"})
-        op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["题干", "答案", "选项"])
+        for q, a, opts in chunk:
+            w.writerow([flat(q), flat(a), "|".join(flat(o) for o in opts)])
+        payload = buf.getvalue().encode("utf-8-sig")
+
+        boundary = "----JYBank%s" % os.urandom(6).hex()
+        body = b"".join([
+            b"--" + boundary.encode() + b"\r\n",
+            b'Content-Disposition: form-data; name="file"; filename="bank.csv"\r\n',
+            b"Content-Type: text/csv\r\n\r\n",
+            payload, b"\r\n",
+            b"--" + boundary.encode() + b"--\r\n",
+        ])
+        req = urllib.request.Request(
+            base + "/api/bank/import", data=body,
+            headers={"Content-Type": "multipart/form-data; boundary=" + boundary})
         try:
-            d = json.load(op.open(req, timeout=120))
+            d = json.load(op.open(req, timeout=180))
+            if not d.get("ok", True):
+                raise RuntimeError(d.get("message") or "服务返回失败")
             ok += d.get("added", 0) + d.get("updated", 0)
             print("  批次 %d-%d：新增 %s 更新 %s，库内 %s"
                   % (i + 1, i + len(chunk), d.get("added"), d.get("updated"), d.get("total")))
