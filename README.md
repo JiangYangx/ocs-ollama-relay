@@ -348,6 +348,47 @@ ChatBox、LobeChat 之类把「API 地址」填 `http://127.0.0.1:5000/v1` 即�
 
 ---
 
+## 题库从哪来
+
+自带题库为空，命中率取决于你喂什么。三条路，按性价比排序：
+
+| 来源 | 做法 | 题量参考 | 说明 |
+|---|---|---|---|
+| **CMMLU 公开数据集** | 下载 CSV → `tools/bank_converter.py` 转换 → 控制台拖入 | 67 科 1.16 万题 | 大学/高中/职业资格考试，每题带标准答案，CC BY-NC 4.0，个人学习用 |
+| **自己收集的题库** | Word/Excel/TXT 里的题 → 转换器 | 看你攒多少 | 支持 `1. 题干 / A. xx / 答案：A`、单行题、判断题 |
+| **历史自动沉淀** | 答过的题一键存进题库 | 越用越多 | 同一道题第二次出现就是毫秒级命中 |
+
+**CMMLU 一秒钟拿下来**（走 HF 镜像，不用梯子）：
+
+```bash
+# 1) 下载（约 1MB 压缩包，解压出 134 个 CSV）
+curl -L -o cmmlu.zip https://hf-mirror.com/datasets/haonan-li/cmmlu/resolve/main/cmmlu_v1_0_1.zip
+unzip cmmlu.zip
+
+# 2) 转换 + 推送（服务开着就自动分批导入，2 秒 1.1 万题）
+python tools/bank_converter.py cmmlu/test --push http://127.0.0.1:5000
+
+# 只要大学专业课
+python tools/bank_converter.py cmmlu/test --subject college,computer --push http://127.0.0.1:5000
+
+# 只转不推，产出一个可拖进控制台的 CSV
+python tools/bank_converter.py cmmlu/test -o bank.csv
+```
+
+转换器自动识别三种输入：CMMLU/C-Eval/MMLU 风格（`Question,A,B,C,D,Answer`）、通用 CSV（题干/答案/选项）、纯文本题库。输出就是 `/api/bank/import` 吃的格式，也可以直接在控制台「题库」页拖进去。
+
+**其他可查可抄的站点**（无批量导出，需手工整理后走转换器）：
+
+- [考试酷](https://www.examcoo.com/index/ku) —— 公共题库永久免费查阅，学历/职业/计算机分类全
+- [大学题库](https://dxxq.com/) —— 本科研究生课程题
+- [考试宝](https://www.kaoshibao.com/) —— 支持上传 Word/Excel/TXT 自建题库，可导出
+- [中国大学MOOC](https://www.icourse163.org/) / [学堂在线](https://www.xuetangx.com/) —— 课程测验原题
+- [glm-cn/ncre](https://github.com/glm-cn/ncre) —— 计算机等级考试题库（分包 rar）
+
+> 别碰需要付费下载券的文库站（人人文库、道客巴巴等），也不要用破解工具抓题库，账号风险远大于收益。
+
+---
+
 ## 内置优化
 
 **三级降级**

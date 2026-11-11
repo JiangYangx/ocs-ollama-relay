@@ -48,6 +48,9 @@ bank.json
 corrections.json
 history.jsonl
 *.bank.json
+# 外部题库原始数据与转换产物（含第三方版权，不入库）
+bank/
+cmmlu/
 ceval_bank.txt
 .cache_ceval/
 
