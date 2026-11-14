@@ -96,8 +96,10 @@ def main() -> None:
     if code == 200:
         print(f"Release {tag} 已存在：{rel['html_url']}")
     else:
-        body = body_for(ver).encode("utf-8")
-        code, rel = curl_json("POST", f"{API}/repos/{REPO}/releases", tk, data=body,
+        payload = json.dumps({"tag_name": tag, "name": f"v{ver}",
+                              "body": body_for(ver), "draft": False,
+                              "prerelease": False}).encode("utf-8")
+        code, rel = curl_json("POST", f"{API}/repos/{REPO}/releases", tk, data=payload,
                               headers={"Content-Type": "application/json"})
         if code not in (200, 201):
             raise SystemExit(f"创建 Release 失败 {code}: {str(rel)[:300]}")
