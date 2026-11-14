@@ -2889,9 +2889,12 @@ def _ocs_snippet() -> str:
 
 @app.route("/", methods=["GET", "HEAD"])
 def index():
-    """浏览器打开根路径 = 控制台。"""
+    """浏览器打开根路径 = 控制台。
+    源码模式每次读文件：改 console.html 刷新浏览器即生效；exe 内嵌版用启动时缓存。"""
     if request.method == "HEAD":
         return "", 200
+    if not _CONSOLE_B64:
+        return _load_console()
     return CONSOLE_HTML
 
 
